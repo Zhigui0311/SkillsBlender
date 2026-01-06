@@ -29,12 +29,33 @@ def illegal_contact(
 
 def path_deviation(
     env: ManagerBasedRLEnv, 
-    max_deviation: float, 
-    command_name: str 
+    min_threshold: float = 0.5, 
+    max_threshold: float = 10.0,
+    command_name: str = "path_tracking"
 ) -> torch.Tensor:
-    """偏离路径终止 (Command-based)"""
+    """According to progress, dynamically adjust the deviation threshold for path tracking termination."""
     command = env.command_manager.get_term(command_name)
-    return command.metrics["error_pos_xy"] > max_deviation
+    alpha = command.current_alpha.squeeze(-1) # 获取进度 [0, 1]
+    
+    # 进度越小（刚开始），阈值越大；进度越大（快到终点），阈值越小
+    # 阈值从 max_threshold 线性下降到 min_threshold
+    current_max_dist = max_threshold - (max_threshold - min_threshold) * alpha
+    
+    return command.metrics["error_pos_xy"] > current_max_dist
+
+# def path_deviation_with_grace(
+#     env: ManagerBasedRLEnv, 
+#     max_deviation: float, 
+#     grace_steps: int = 50, # 给予 50 步宽限期
+#     command_name: str = "path_tracking"
+# ) -> torch.Tensor:
+#     """With a grace period, terminate if path deviation exceeds max_deviation after grace_steps."""
+#     command = env.command_manager.get_term(command_name)
+#     # 只有当步数超过 grace_steps 且误差超过阈值时才终止
+#     deviation_trigger = command.metrics["error_pos_xy"] > max_deviation
+#     time_trigger = env.episode_length_buf > grace_steps
+    
+#     return torch.logical_and(deviation_trigger, time_trigger)
 
 #  如果想用这个作为摔倒判定，就需要 Articulation
 def base_height_below_threshold(

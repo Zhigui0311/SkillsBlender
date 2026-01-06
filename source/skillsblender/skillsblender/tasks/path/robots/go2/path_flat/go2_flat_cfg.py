@@ -24,7 +24,7 @@ class Go2PathEnvCfg(PathEnvCfg):
 
 
 @configclass
-class Go2PathPlayEnvCfg(Go2PathEnvCfg):
+class Go2PathEnvCfg_PLAY(Go2PathEnvCfg):
     "Unitree Go2 in flat terrain path following play task configuration."
     
     def __post_init__(self):
@@ -34,4 +34,8 @@ class Go2PathPlayEnvCfg(Go2PathEnvCfg):
         self.scene.env_spacing = 10.0
 
         self.scene.terrain.max_init_terrain_level = None
+        self.observations.policy.enable_corruption = False
+        # remove random pushing
+        self.events.randomize_apply_external_force_torque = None
+        self.curriculum = None
 

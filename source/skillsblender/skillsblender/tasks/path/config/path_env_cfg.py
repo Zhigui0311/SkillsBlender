@@ -385,19 +385,19 @@ class RewardsCfg:
     # --- task (基于 path_tracking 指令生成的误差指标) ---
     track_xy = RewTerm(
         func=mdp.track_path_pos_xy_exp, 
-        weight=2.0, 
+        weight=5.0, 
         params={"std": 0.5, "command_name": "path_tracking"}
     )
     track_yaw = RewTerm(
         func=mdp.track_path_heading_exp, 
-        weight=1.0, 
+        weight=2.0, 
         params={"std": 0.5, "command_name": "path_tracking"}
     )
-    track_z = RewTerm(
-        func=mdp.track_path_height_exp, 
-        weight=0.5, 
-        params={"std": 0.1, "command_name": "path_tracking"}
-    )
+    # track_z = RewTerm(
+    #     func=mdp.track_path_height_exp, 
+    #     weight=0.5, 
+    #     params={"std": 0.1, "command_name": "path_tracking"}
+    # )
 
     # --- normalization and penalties ---(防止动作乱动、提升平滑度)
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-1.0)
@@ -441,7 +441,7 @@ class TerminationsCfg:
     # 3. [Custom] 偏离路径太远终止
     path_deviation = DoneTerm(
         func=mdp.path_deviation,
-        params={"max_deviation": 0.5, "command_name": "path_tracking"},
+        params={"min_threshold":0.3,"max_threshold": 10, "command_name": "path_tracking"},
     )
 
 

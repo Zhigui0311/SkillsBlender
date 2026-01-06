@@ -113,6 +113,10 @@ class PathCommand(CommandTerm):
         current_alpha = self.t_alpha[self.current_waypoints_index] 
         return current_alpha.unsqueeze(1)  # (num_envs, 1)
 
+    @property
+    def start_pos_w(self) -> torch.Tensor:
+        """获取所有环境路径的起点世界坐标 (N, 3)"""
+        return self.pos_path_w[:, 0, :]
 
     # -- Functions
     def _generate_trajectory(self, env_ids:torch.Tensor) -> torch.Tensor:
