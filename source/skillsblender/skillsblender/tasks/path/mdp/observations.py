@@ -25,7 +25,7 @@ def path_slice_obs(
     ) -> torch.Tensor:
     """obtain path slice observation"""
     command: PathCommand = env.command_manager.get_term(command_name)
-    return command._command
+    return command.command
 
 
 def base_lin_vel(env: ManagerBasedRLEnv, 

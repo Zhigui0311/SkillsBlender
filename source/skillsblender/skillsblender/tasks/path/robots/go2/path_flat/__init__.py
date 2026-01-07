@@ -25,7 +25,7 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_flat_cfg:Go2PathPlayEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.go2_flat_cfg:Go2PathEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": f"skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2PathFlatPPOCfg",
     },
 )

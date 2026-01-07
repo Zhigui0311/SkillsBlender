@@ -259,12 +259,6 @@ class ObservationsCfg:
             scale = 1.0,
             params={"command_name": "path_tracking"}
         )
-
-        alpha = ObsTerm(
-            func=mdp.current_alpha, 
-            scale = 1.0,
-            params={"command_name": "path_tracking"}
-        )
         
         # ---  Proprioception ---
         # base_lin_vel = ObsTerm(

@@ -11,7 +11,10 @@ from isaaclab.terrains import TerrainImporter #不用引用地形生成的吗？
 
 from isaaclab.utils.math import (quat_apply_inverse,
                                 wrap_to_pi,
-                                yaw_quat
+                                yaw_quat, 
+                                quat_from_euler_xyz,
+                                euler_xyz_from_quat,
+                                random_yaw_orientation
                                 )
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv  
@@ -99,7 +102,7 @@ class PathCommand(CommandTerm):
         Returns:
             The current command tensor of shape (num_envs, 4), where each command consists of (x, y, z, yaw).
         """
-        return self._command
+        return self.obs_slices.reshape(self.num_envs, -1) # (num_envs, num_lookahead_waypoints * 4)
         # 先看看这个可不可以用？
     
     @property
@@ -281,8 +284,10 @@ class PathCommand(CommandTerm):
         quat_expanded = robot_quat.unsqueeze(1).expand(-1, window_size, -1) # (N, window_size, 4)     calculate robot orientation in world frame
         pos_b = quat_apply_inverse(quat_expanded, pos_diff)   # (N, window_size, 3)
         
-        robot_yaw_quat = yaw_quat(robot_quat)
-        robot_yaw_angle = 2.0*torch.atan2(robot_yaw_quat[:, 3], robot_yaw_quat[:, 0]).unsqueeze(1).unsqueeze(2).expand(-1,window_size,-1)  # (N, window_size, 1)
+        # robot_yaw_quat = yaw_quat(robot_quat)
+        # robot_yaw_angle = 2.0*torch.atan2(robot_yaw_quat[:, 3], robot_yaw_quat[:, 0]).unsqueeze(1).unsqueeze(2).expand(-1,window_size,-1)  # (N, window_size, 1)
+        _, _, robot_yaw_angle = euler_xyz_from_quat(robot_quat)
+        robot_yaw_angle = robot_yaw_angle.view(-1,1,1)
         yaw_b = wrap_to_pi(yaw_w - robot_yaw_angle)  # (N, window_size, 1)
         
         return torch.cat([pos_b, yaw_b], dim=-1)
