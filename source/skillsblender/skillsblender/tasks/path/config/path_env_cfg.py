@@ -223,7 +223,7 @@ class CommandsCfg:
         inpoints=mdp.commands.PathCommandCfg.InterpolationPoints(
             path_type="linear",
             height_change=False,
-            end_to_start_pos=(25.0, 100.0), # 终点范围
+            end_to_start_pos=(25.0, 100.0, 0), # 终点范围
             yaw_type="decoupled",       
             start_heading=(-math.pi, 0), 
             end_heading=(0, math.pi),   
@@ -314,11 +314,6 @@ class ObservationsCfg:
         
         path_slice= ObsTerm(
             func=mdp.path_slice_obs, 
-            params={"command_name": "path_tracking"}
-        )
-
-        alpha = ObsTerm(
-            func=mdp.current_alpha, 
             params={"command_name": "path_tracking"}
         )
         
@@ -449,7 +444,7 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
     Flat terrain environment configuration for robot navigating along a path.
     """
     # scene
-    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
+    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=5.0)
     
     # Observations, Actions, Commands
     observations: ObservationsCfg = ObservationsCfg()
