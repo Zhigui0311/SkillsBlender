@@ -22,25 +22,8 @@ if TYPE_CHECKING:
 
 import isaaclab.sim as sim_utils
 from isaaclab.markers import VisualizationMarkersCfg
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
-WAYPOINT_MARKER_CFG = VisualizationMarkersCfg(
-    prim_path="/Visuals/PathMarkers",
-    markers={
-        "waypoint_slice": sim_utils.SphereCfg(
-            radius=0.04,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)), 
-        ),
-        "start": sim_utils.SphereCfg(
-            radius=0.1,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 1.0, 0.0)), 
-        ),
-        "goal": sim_utils.SphereCfg(
-            radius=0.1,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)), 
-        ),
-    }
-)
+
 
 
 class PathCommand(CommandTerm):
@@ -88,13 +71,6 @@ class PathCommand(CommandTerm):
         self.metrics["error_heading"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["error_pos_z"] = torch.zeros(self.num_envs, device=self.device)
 
-        # -- Visualization
-        #TODO: visualize the planned path and waypoints ?
-        self._vis_path = None
-        # if self.cfg.debug_vis:
-        #     marker_cfg = WAYPOINT_MARKER_CFG
-        #     self._vis_path = VisualizationMarkers(marker_cfg)
-
 
     @property
     def command(self) -> torch.Tensor:
@@ -105,24 +81,7 @@ class PathCommand(CommandTerm):
         return self.obs_slices.reshape(self.num_envs, -1) # (num_envs, num_lookahead_waypoints * 4)
         # 先看看这个可不可以用？
     
-    @property
-    def current_alpha(self) -> torch.Tensor:
-        """Get the current path progress alpha [0, 1] for each environment.
-        Returns:
-            The current alpha tensor of shape (num_envs, 1).
-        """
-        # self.t_alpha  (num_waypoints,)
-        # self.current_waypoints_index  (num_envs,)
-        current_alpha = self.t_alpha[self.current_waypoints_index] 
-        return current_alpha.unsqueeze(1)  # (num_envs, 1)
 
-    @property
-    def start_pos_w(self) -> torch.Tensor:
-        """Get the start position of the path in world frame for each environment.
-        Returns:
-            The start position tensor of shape (num_envs, 3).
-        """
-        return self.pos_path_w[:, 0, :]
 
     # -- Functions
     def _get_env_xy_bounds(self, env_ids: torch.Tensor) -> tuple[torch.Tensor | None, torch.Tensor | None]:
@@ -151,7 +110,7 @@ class PathCommand(CommandTerm):
         end_pos = torch.empty_like(start_pos)
         end_range = getattr(self.cfg.inpoints, "end_to_start_pos", None)
         if end_range is None:
-            end_range = getattr(self.cfg.inpoints, "end_to_origins_pos", None)
+            end_range = getattr(self.cfg.inpoints, "end_to_start_pos", None)
         if end_range is not None:
             offset_xy = torch.empty((num_batch, 2), device=self.device).uniform_(end_range[0], end_range[1])
             end_pos[:, :2] = start_pos[:, :2] + offset_xy
@@ -161,10 +120,10 @@ class PathCommand(CommandTerm):
         if xy_min is not None:
             end_pos[:, :2] = torch.max(torch.min(end_pos[:, :2], xy_max), xy_min)
         if not self.cfg.inpoints.height_change:
-            # if self.cfg.inpoints.end_to_start_pos[2] != 0:
-            #     raise ValueError("Height change is disabled, but end_to_start_pos z range is not zero.")
-            # else:
-            end_pos[:, 2] = start_pos[:, 2]
+            if self.cfg.inpoints.end_to_start_pos[2] != 0:
+                raise ValueError("Height change is disabled, but end_to_start_pos z range is not zero.")
+            else:
+                end_pos[:, 2] = start_pos[:, 2]
         else:
             pass #这里需要改变高度的，需要根据地形设计，感觉可以另外拉一个类来写
         alpha = self.t_alpha.view(1, -1, 1)
@@ -371,6 +330,49 @@ class PathCommand(CommandTerm):
         )
 
         self.obs_slices = self._get_cur_slices(torch.arange(self.num_envs, device=self.device))
+
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        """
+        Set up or remove debug visualization markers.
+        Args:
+            debug_vis: Whether to enable debug visualization.
+        """
+        if debug_vis:
+            if not hasattr(self, "path_waypoints_visualizer"):
+                self.path_waypoints_visualizer = VisualizationMarkers(self.cfg.path_waypoints_visualizer_cfg)
+                self.goal_visualizer = VisualizationMarkers(self.cfg.path_goal_visualizer_cfg)
+                self.start_visualizer = VisualizationMarkers(self.cfg.path_start_visualizer_cfg)
+            # set their visibility to true
+            self.path_waypoints_visualizer.set_visibility(True)
+            self.goal_visualizer.set_visibility(True)
+            self.start_visualizer.set_visibility(True)
+        else:
+            if hasattr(self, "path_waypoints_visualizer"):
+                self.path_waypoints_visualizer.set_visibility(False)
+                self.goal_visualizer.set_visibility(False)
+                self.start_visualizer.set_visibility(False)
+
+    
+
+    def _debug_vis_callback(self, event):
+        self.path_waypoints_visualizer.visualize(
+            translations=self.obs_slices[:, :, :3].reshape(-1, 3),
+        ),
+        self.goal_visualizer.visualize(
+            translations=self.pos_path_w[torch.arange(self.num_envs), -1],
+            
+        ),
+        self.start_visualizer.visualize(
+            translations=self.pos_path_w[torch.arange(self.num_envs), 0],       
+        )
+
+
+
+
+
+
+        # robot_pos = self.robot.data.root_pos_w[:, :3]  # (N, 3)
 
 
         # # 1. Track Progress: Find closest point index

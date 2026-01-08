@@ -98,14 +98,14 @@ class MySceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = MISSING
 
     #sensors
-    height_scanner = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[3.0, 1.0]),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
+    # height_scanner = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Robot/base",
+    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+    #     ray_alignment="yaw",
+    #     pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[3.0, 1.0]),
+    #     debug_vis=True,
+    #     mesh_prim_paths=["/World/ground"],
+    # )
 
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*", 
@@ -223,7 +223,7 @@ class CommandsCfg:
         inpoints=mdp.commands.PathCommandCfg.InterpolationPoints(
             path_type="linear",
             height_change=False,
-            end_to_start_pos=(25.0, 100.0, 0), # 终点范围
+            end_to_start_pos=(2.5, 6.0, 0), # 终点范围
             yaw_type="decoupled",       
             start_heading=(-math.pi, 0), 
             end_heading=(0, math.pi),   
@@ -232,7 +232,7 @@ class CommandsCfg:
         ranges=mdp.commands.PathCommandCfg.Ranges(
             num_waypoints=100,           
             num_lookahead_waypoints=6,  
-            waypoint_reach_threshold=0.2,
+            waypoint_reach_threshold=0.8,
         ),
         debug_vis=True, 
     )
@@ -356,8 +356,7 @@ class ObservationsCfg:
             scale=1.0,
         )
         #可以考虑加上last last
-
-        #height_scanner  加不加这个功能？
+        #height_scanner  加不加这个功能？现在不能加 暂时都不能有
 
         def __post_init__(self):
             self.enable_corruption = False
@@ -430,7 +429,7 @@ class TerminationsCfg:
     # 3. [Custom] 偏离路径太远终止
     path_deviation = DoneTerm(
         func=mdp.path_deviation,
-        params={"min_threshold":0.3,"max_threshold": 10, "command_name": "path_tracking"},
+        params={"min_threshold":1.0,"max_threshold": 10, "command_name": "path_tracking"},
     )
 
 
@@ -462,18 +461,11 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
         
         self.sim.dt = 0.005 # 200Hz Simulation frequency
         self.decimation = 4 # 50Hz control frequency
-        self.episode_length_s = 25.0
+        self.episode_length_s = 10.0 
 
         self.sim.render_interval = 2  
         self.sim.physics_material = self.scene.terrain.physics_material
+        self.viewer.asset_name = "robot"
+        self.viewer.origin_type = "asset"
         self.viewer.eye = (3.0, 3.0, 3.0)
         self.viewer.lookat = (0.0, 0.0, 0.0)
-
-
-
-# class Go2PathPlayEnvCfg(Go2PathEnvCfg):
-#     """用于测试播放的单环境配置"""
-#     def __post_init__(self):
-#         super().__post_init__()
-#         self.scene.num_envs = 1
-#         self.episode_length_s = 1e9
