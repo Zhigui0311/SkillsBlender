@@ -24,23 +24,6 @@ import isaaclab.sim as sim_utils
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
-WAYPOINT_MARKER_CFG = VisualizationMarkersCfg(
-    prim_path="/Visuals/PathMarkers",
-    markers={
-        "waypoint_slice": sim_utils.SphereCfg(
-            radius=0.04,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)), 
-        ),
-        "start": sim_utils.SphereCfg(
-            radius=0.1,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 1.0, 0.0)), 
-        ),
-        "goal": sim_utils.SphereCfg(
-            radius=0.1,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)), 
-        ),
-    }
-)
 
 
 class PathCommand(CommandTerm):
@@ -88,13 +71,6 @@ class PathCommand(CommandTerm):
         self.metrics["error_heading"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["error_pos_z"] = torch.zeros(self.num_envs, device=self.device)
 
-        # -- Visualization
-        #TODO: visualize the planned path and waypoints ?
-        self._vis_path = None
-        # if self.cfg.debug_vis:
-        #     marker_cfg = WAYPOINT_MARKER_CFG
-        #     self._vis_path = VisualizationMarkers(marker_cfg)
-
 
     @property
     def command(self) -> torch.Tensor:
@@ -116,12 +92,28 @@ class PathCommand(CommandTerm):
         current_alpha = self.t_alpha[self.current_waypoints_index] 
         return current_alpha.unsqueeze(1)  # (num_envs, 1)
 
-    @property
-    def start_pos_w(self) -> torch.Tensor:
-        """获取所有环境路径的起点世界坐标 (N, 3)"""
-        return self.pos_path_w[:, 0, :]
+    # @property
+    # def start_pos_w(self) -> torch.Tensor:
+    #     """Get the start position of the path in world frame for each environment.
+    #     Returns:
+    #         The start position tensor of shape (num_envs, 3).
+    #     """
+    #     return self.pos_path_w[:, 0, :]
 
     # -- Functions
+    def _get_env_xy_bounds(self, env_ids: torch.Tensor) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        """Compute per-env XY bounds based on env spacing."""
+        env_spacing = self._env.scene.cfg.env_spacing
+        if env_spacing is None:
+            return None, None
+        env_origins = self._env.scene.env_origins[env_ids]
+        half = 0.5 * env_spacing
+        margin = self.cfg.ranges.waypoint_reach_threshold
+        bound = max(half - margin, 0.0)
+        xy_min = env_origins[:, :2] - bound
+        xy_max = env_origins[:, :2] + bound
+        return xy_min, xy_max
+
     def _generate_trajectory(self, env_ids:torch.Tensor) -> torch.Tensor:
 
         """Generate pos trajectory and yaw trajectory based on interpolation points."""
@@ -129,17 +121,26 @@ class PathCommand(CommandTerm):
         pos_trajectory = torch.zeros((num_batch, self.num_waypoints, 3), device=self.device)
         yaw_trajectory = torch.zeros((num_batch, self.num_waypoints, 1), device=self.device)
         start_pos = self.robot.data.root_pos_w[env_ids].clone()
+        xy_min, xy_max = self._get_env_xy_bounds(env_ids)
+        if xy_min is not None:
+            start_pos[:, :2] = torch.max(torch.min(start_pos[:, :2], xy_max), xy_min)
         end_pos = torch.empty_like(start_pos)
-        if self.cfg.inpoints.end_to_start_pos is not None:
-            end_pos[:, 0] = start_pos[:, 0] + torch.empty(num_batch, device=self.device).uniform_(
-                self.cfg.inpoints.end_to_start_pos[0], self.cfg.inpoints.end_to_start_pos[1])
-            end_pos[:, 1] = start_pos[:, 1] + torch.empty(num_batch, device=self.device).uniform_(
-                self.cfg.inpoints.end_to_start_pos[0], self.cfg.inpoints.end_to_start_pos[1])
+        end_range = getattr(self.cfg.inpoints, "end_to_start_pos", None)
+        if end_range is None:
+            end_range = getattr(self.cfg.inpoints, "end_to_start_pos", None)
+        if end_range is not None:
+            offset_xy = torch.empty((num_batch, 2), device=self.device).uniform_(end_range[0], end_range[1])
+            end_pos[:, :2] = start_pos[:, :2] + offset_xy
         else:
             end_pos[:, 0] = start_pos[:, 0] + torch.empty(num_batch, device=self.device).uniform_(-5.0, 5.0)
             end_pos[:, 1] = start_pos[:, 1] + torch.empty(num_batch, device=self.device).uniform_(-5.0, 5.0)
+        if xy_min is not None:
+            end_pos[:, :2] = torch.max(torch.min(end_pos[:, :2], xy_max), xy_min)
         if not self.cfg.inpoints.height_change:
-            end_pos[:, 2] = start_pos[:, 2]
+            if self.cfg.inpoints.end_to_start_pos[2] != 0:
+                raise ValueError("Height change is disabled, but end_to_start_pos z range is not zero.")
+            else:
+                end_pos[:, 2] = start_pos[:, 2]
         else:
             pass #这里需要改变高度的，需要根据地形设计，感觉可以另外拉一个类来写
         alpha = self.t_alpha.view(1, -1, 1)
@@ -150,7 +151,9 @@ class PathCommand(CommandTerm):
             pos_trajectory = self._pos_interpolate(start_pos.unsqueeze(1), end_pos.unsqueeze(1), alpha)
         elif self.cfg.inpoints.path_type == 'bezier':
             # Randomly sample end positions within some range
-            pos_trajectory = self._pos_bezerier_interpolate(start_pos.unsqueeze(1), end_pos.unsqueeze(1), alpha)
+            pos_trajectory = self._pos_bezerier_interpolate(
+                start_pos.unsqueeze(1), end_pos.unsqueeze(1), alpha, xy_min=xy_min, xy_max=xy_max
+            )
             
         # -- Yaw generation
         if self.cfg.inpoints.yaw_type == 'decoupled':
@@ -186,7 +189,7 @@ class PathCommand(CommandTerm):
         return start_pos + (end_pos - start_pos) * alpha
 
 
-    def _pos_bezerier_interpolate(self, start_pos, end_pos, beta) -> torch.Tensor:
+    def _pos_bezerier_interpolate(self, start_pos, end_pos, beta, xy_min=None, xy_max=None) -> torch.Tensor:
         """Interpolate between two positions using Bezier curve (for uneven terrain).
         Args:
             start: The current position, must be the starting point of uneven terrain.
@@ -201,6 +204,13 @@ class PathCommand(CommandTerm):
         # Control points p1 and p2 can be defined based on the desired path shape
         p1 = start_pos + torch.tensor([1.0, 0.0, 0.0], device=self.device)  # Example control point
         p2 = end_pos - torch.tensor([1.0, 0.0, 0.0], device=self.device)    # Example control point
+        if xy_min is not None:
+            xy_min = xy_min.unsqueeze(1)
+            xy_max = xy_max.unsqueeze(1)
+            p1 = p1.clone()
+            p2 = p2.clone()
+            p1[..., :2] = torch.max(torch.min(p1[..., :2], xy_max), xy_min)
+            p2[..., :2] = torch.max(torch.min(p2[..., :2], xy_max), xy_min)
 
         # Compute Bezier point using the cubic Bezier formula
         return (1 - beta) ** 3 * p0 + 3 * (1 - beta) ** 2 * beta * p1 + 3 * (1 - beta) * beta ** 2 * p2 + beta ** 3 * p3
@@ -337,29 +347,40 @@ class PathCommand(CommandTerm):
         )
 
         self.obs_slices = self._get_cur_slices(torch.arange(self.num_envs, device=self.device))
-        self._command = self.obs_slices[:, 0, :]  # (N, 4) -> first waypoint in the slice
 
 
-        # # 1. Track Progress: Find closest point index
-        # # Optimization: Search full path (robust) or local window (fast). 
-        # dists = torch.norm(self.pos_path_w - robot_pos.unsqueeze(1), dim=-1)  # (N, num_waypoints)
-        # closest_indices = torch.argmin(dists, dim=1)  # (N,)
-        
-        # # Ensure progress is monotonic (cannot go backward)
-        # self.current_waypoints_index = torch.max(self.current_waypoints_index, closest_indices) #! 这里不太对吧 current_waypoints_index 应该也要慢慢增加吧
-        
-        # # 2. Update Observations: Get waypoint slices in body frame
-        # self.obs_slices = self._get_cur_slices(torch.arange(self.num_envs, device=self.device))
-        # self._command = self.obs_slices[:, 0, :]  # (N, 4) -> first waypoint in the slice
 
-        # # ? 画出可视化的路径
-        # # # 3. Visualize Dense Path (Local view)
-        # # if self._vis_path:
-        # #     # 只画第一个环境的路径，避免卡顿
-        # #     env_0_idx = 0
-        # #     # 画出当前索引之后的所有点
-        # #     start_idx = self.current_waypoints_index[env_0_idx].item()
-        # #     points = self.pos_path_w[env_0_idx, start_idx:]
-        # #     self._vis_path.visualize(points, marker_type="waypoint")
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        """
+        Set up or remove debug visualization markers.
+        Args:
+            debug_vis: Whether to enable debug visualization.
+        """
+        if debug_vis:
+            if not hasattr(self, "path_waypoints_visualizer"):
+                self.path_waypoints_visualizer = VisualizationMarkers(self.cfg.path_waypoints_visualizer_cfg)
+                self.goal_visualizer = VisualizationMarkers(self.cfg.path_goal_visualizer_cfg)
+                self.start_visualizer = VisualizationMarkers(self.cfg.path_start_visualizer_cfg)
+            # set their visibility to true
+            self.path_waypoints_visualizer.set_visibility(True)
+            self.goal_visualizer.set_visibility(True)
+            self.start_visualizer.set_visibility(True)
+        else:
+            if hasattr(self, "path_waypoints_visualizer"):
+                self.path_waypoints_visualizer.set_visibility(False)
+                self.goal_visualizer.set_visibility(False)
+                self.start_visualizer.set_visibility(False)
 
+    
 
+    def _debug_vis_callback(self, event):
+        self.path_waypoints_visualizer.visualize(
+            translations=self.obs_slices[:, :, :3].reshape(-1, 3),
+        ),
+        self.goal_visualizer.visualize(
+            translations=self.pos_path_w[torch.arange(self.num_envs), -1],
+            
+        ),
+        self.start_visualizer.visualize(
+            translations=self.pos_path_w[torch.arange(self.num_envs), 0],       
+        )

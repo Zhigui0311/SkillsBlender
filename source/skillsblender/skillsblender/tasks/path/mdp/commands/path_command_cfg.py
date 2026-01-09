@@ -8,7 +8,8 @@ from isaaclab.utils import configclass
 
 from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
-from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, FRAME_MARKER_CFG, GREEN_ARROW_X_MARKER_CFG
+from skillsblender.tasks.path.config import WAYPOINTS_MARKER_CFG, START_SPHERE_MARKER_CFG, GOAL_SPHERE_MARKER_CFG
+
 
 
 from .path_command import PathCommand
@@ -43,7 +44,7 @@ class PathCommandCfg(CommandTermCfg):
         # resolution for path interpolation
         path_type: Literal['linear','bezier'] = MISSING
         height_change: bool = MISSING #whether to consider height change in path planning
-        end_to_start_pos: tuple[float, float] = None #range for end position sampling  .= path length range
+        end_to_start_pos: tuple[float, float, float] = None #range for end position sampling  .= path length range
         yaw_type: Literal['decoupled','along_path'] = MISSING #how to determine the yaw along the path
             #along_path: yaw is determined by the path direction
             #decoupled: yaw is sampled independently 可能会横着走
@@ -61,6 +62,24 @@ class PathCommandCfg(CommandTermCfg):
         waypoint_reach_threshold: float = MISSING  #distance threshold to consider a waypoint reached
     
     ranges: Ranges = MISSING
+    
+    path_waypoints_visualizer_cfg: VisualizationMarkersCfg = WAYPOINTS_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/path_waypoints"
+    )
+    """The configuration for the path waypoints visualization marker. Defaults to WAYPOINT_MARKER_CFG.
+    """
+
+    path_start_visualizer_cfg: VisualizationMarkersCfg = START_SPHERE_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/path_start"
+    )
+    """The configuration for the path start visualization marker. Defaults to START_SPHERE_MARKER_CFG.
+    """
+
+    path_goal_visualizer_cfg: VisualizationMarkersCfg = GOAL_SPHERE_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/path_goal"
+    )
+    """The configuration for the path goal visualization marker. Defaults to GOAL_SPHERE_MARKER_CFG.
+    """
 
 
 

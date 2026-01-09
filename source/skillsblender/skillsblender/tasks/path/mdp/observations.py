@@ -12,12 +12,6 @@ from .commands.path_command import PathCommand
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
-def current_alpha(
-    env: ManagerBasedRLEnv, 
-    command_name: str 
-    ) -> torch.Tensor:
-    command: PathCommand = env.command_manager.get_term(command_name)
-    return command.current_alpha
 
 def path_slice_obs(
     env: ManagerBasedRLEnv, 

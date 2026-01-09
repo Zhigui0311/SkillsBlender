@@ -1,2 +1,0 @@
-[2025-12-03 14:52:52,069][isaaclab.envs.manager_based_env][WARNING] - The render interval (4) is smaller than the decimation (40). Multiple render calls will happen for each environment step. If this is not intended, set the render interval to be equal to the decimation.
-[2025-12-03 14:53:28,593][isaaclab.terrains.terrain_importer][WARNING] - Visual material specified for ground plane but no diffuse color found. Using default color: (0.0, 0.0, 0.0)

@@ -29,13 +29,23 @@ class Go2PathEnvCfg_PLAY(Go2PathEnvCfg):
     
     def __post_init__(self):
         super().__post_init__()
-
-        self.scene.num_envs = 10
-        self.scene.env_spacing = 10.0
-
+        
+        self.sim.dt = 0.005 # 200Hz Simulation frequency
+        self.decimation = 4 # 50Hz control frequency
+        self.episode_length_s = 10.0 
+        self.scene.num_envs = 32
+        self.scene.env_spacing = 2.5
+        
+        self.sim.render_interval = 2  
+        
         self.scene.terrain.max_init_terrain_level = None
-        self.observations.policy.enable_corruption = False
-        # remove random pushing
-        self.events.randomize_apply_external_force_torque = None
+        self.events.base_external_force_torque = None
         self.curriculum = None
 
+        self.sim.physics_material = self.scene.terrain.physics_material
+        self.viewer.asset_name = None
+        self.viewer.origin_type = None
+        self.viewer.origin_type = "world"
+        # self.viewer.eye = (40.0, 40.0, 30.0)
+        # self.viewer.lookat = (0.0, 0.0, 0.0)
+        self.commands.path_tracking.debug_vis = False

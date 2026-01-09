@@ -98,14 +98,14 @@ class MySceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = MISSING
 
     #sensors
-    height_scanner = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/base",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[3.0, 1.0]),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
+    # height_scanner = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Robot/base",
+    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+    #     ray_alignment="yaw",
+    #     pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[3.0, 1.0]),
+    #     debug_vis=True,
+    #     mesh_prim_paths=["/World/ground"],
+    # )
 
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*", 
@@ -223,7 +223,7 @@ class CommandsCfg:
         inpoints=mdp.commands.PathCommandCfg.InterpolationPoints(
             path_type="linear",
             height_change=False,
-            end_to_start_pos=(25.0, 100.0), # 终点范围
+            end_to_start_pos=(2.0, 10.0,0), # 终点范围
             yaw_type="decoupled",       
             start_heading=(-math.pi, 0), 
             end_heading=(0, math.pi),   
@@ -232,7 +232,7 @@ class CommandsCfg:
         ranges=mdp.commands.PathCommandCfg.Ranges(
             num_waypoints=100,           
             num_lookahead_waypoints=6,  
-            waypoint_reach_threshold=0.2,
+            waypoint_reach_threshold=0.8,
         ),
         debug_vis=True, 
     )
@@ -259,15 +259,7 @@ class ObservationsCfg:
             scale = 1.0,
             params={"command_name": "path_tracking"}
         )
-        
-        # ---  Proprioception ---
-        # base_lin_vel = ObsTerm(
-        #     func=mdp.base_lin_vel, 
-        #     noise=Unoise(n_min=-0.1, n_max=0.1),
-        #     clip=(-100.0,100.0),
-        #     scale=1.0,
-        # )
-        
+    
         base_ang_vel = ObsTerm(
             func=mdp.base_ang_vel, 
             noise=Unoise(n_min=-0.2, n_max=0.2),
@@ -314,11 +306,6 @@ class ObservationsCfg:
         
         path_slice= ObsTerm(
             func=mdp.path_slice_obs, 
-            params={"command_name": "path_tracking"}
-        )
-
-        alpha = ObsTerm(
-            func=mdp.current_alpha, 
             params={"command_name": "path_tracking"}
         )
         
@@ -435,7 +422,7 @@ class TerminationsCfg:
     # 3. [Custom] 偏离路径太远终止
     path_deviation = DoneTerm(
         func=mdp.path_deviation,
-        params={"min_threshold":0.3,"max_threshold": 10, "command_name": "path_tracking"},
+        params={"min_threshold":1.0,"max_threshold": 10, "command_name": "path_tracking"},
     )
 
 
@@ -449,7 +436,7 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
     Flat terrain environment configuration for robot navigating along a path.
     """
     # scene
-    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
+    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=10.0)
     
     # Observations, Actions, Commands
     observations: ObservationsCfg = ObservationsCfg()
@@ -460,25 +447,18 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
         
         self.sim.dt = 0.005 # 200Hz Simulation frequency
         self.decimation = 4 # 50Hz control frequency
-        self.episode_length_s = 25.0
+        self.episode_length_s = 10.0 
 
         self.sim.render_interval = 2  
-        self.sim.physics_material = self.scene.terrain.physics_material
-        self.viewer.eye = (3.0, 3.0, 3.0)
-        self.viewer.lookat = (0.0, 0.0, 0.0)
+        # self.sim.physics_material = self.scene.terrain.physics_material
+        # self.viewer.eye = (3.0, 3.0, 3.0)
+        # self.viewer.lookat = (0.0, 0.0, 0.0)
 
 
 
-# class Go2PathPlayEnvCfg(Go2PathEnvCfg):
-#     """用于测试播放的单环境配置"""
-#     def __post_init__(self):
-#         super().__post_init__()
-#         self.scene.num_envs = 1
-#         self.episode_length_s = 1e9

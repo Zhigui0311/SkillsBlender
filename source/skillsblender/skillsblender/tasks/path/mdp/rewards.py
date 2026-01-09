@@ -20,6 +20,29 @@ if TYPE_CHECKING:
 # ==============================================================================
 # Task Rewards 
 # ==============================================================================
+def track_velocity_along_path_exp(
+    env: ManagerBasedRLEnv, 
+    std: float, 
+    command_name: str = "path_tracking"
+) -> torch.Tensor:
+    """
+    奖励沿着路径方向的速度 (核心动力来源)。
+    鼓励机器人不仅要离路径近，还要顺着路径跑。
+    """
+    command = env.command_manager.get_term(command_name)
+    # 1. 获取目标点方向向量 (世界坐标)
+    target_pos_w = command.command[:, :3]
+    robot_pos_w = env.scene["robot"].data.root_pos_w[:, :3]
+    target_vec_w = target_pos_w - robot_pos_w
+    target_dir_w = target_vec_w / (torch.norm(target_vec_w, dim=-1, keepdim=True) + 1e-6)
+    # 2. 获取机器人当前线速度 (世界坐标)
+    vel_w = env.scene["robot"].data.root_lin_vel_w[:, :3]
+
+    # 3. 计算投影速度：实际速度在目标方向上的投影
+    projection_vel = torch.sum(vel_w * target_dir_w, dim=-1)
+    
+    # 4. 指数奖励：鼓励投影速度接近某个理想值（比如 1.0 m/s），或者直接取正值
+    return torch.exp(-torch.square(projection_vel - 1.0) / std**2)
 
 def track_path_pos_xy_exp(
     env: ManagerBasedRLEnv, 
