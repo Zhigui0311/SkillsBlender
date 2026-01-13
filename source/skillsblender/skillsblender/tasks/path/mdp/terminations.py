@@ -43,21 +43,7 @@ def path_deviation(
     
     return command.metrics["error_pos_xy"] > current_max_dist
 
-# def path_deviation_with_grace(
-#     env: ManagerBasedRLEnv, 
-#     max_deviation: float, 
-#     grace_steps: int = 50, # 给予 50 步宽限期
-#     command_name: str = "path_tracking"
-# ) -> torch.Tensor:
-#     """With a grace period, terminate if path deviation exceeds max_deviation after grace_steps."""
-#     command = env.command_manager.get_term(command_name)
-#     # 只有当步数超过 grace_steps 且误差超过阈值时才终止
-#     deviation_trigger = command.metrics["error_pos_xy"] > max_deviation
-#     time_trigger = env.episode_length_buf > grace_steps
-    
-#     return torch.logical_and(deviation_trigger, time_trigger)
 
-#  如果想用这个作为摔倒判定，就需要 Articulation
 def base_height_below_threshold(
     env: ManagerBasedRLEnv,
     minimum_height: float,

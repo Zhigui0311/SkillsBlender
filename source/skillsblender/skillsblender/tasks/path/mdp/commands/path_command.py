@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from .path_command_cfg import PathCommandCfg                                      
 
 import isaaclab.sim as sim_utils
-from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 
@@ -56,14 +55,13 @@ class PathCommand(CommandTerm):
 
         # -- command buffers
         self.current_waypoints_index = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self._command = torch.zeros(self.num_envs, 4, device=self.device)  # (x, y, z, yaw)
+        self.goal_reached = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
        
         # -- path:(x,y,z,yaw/heading)
         self.pos_path_w = torch.zeros(self.num_envs, self.num_waypoints, 3, device=self.device)
         self.heading_path_w = torch.zeros(self.num_envs, self.num_waypoints, 1, device=self.device) #？！这个角度需要分析一下是相对于什么的角度，还需要转化成四元数之后使用 这个好一点
         # self.pos_path_b = torch.zeros_like(self.pos_path_w)
-        # self.heading_path_b = torch.zeros_like(self.heading_path_w) #？这两个量需要吗
-
+        # self.heading_path_b = torch.zeros_like(self.heading_path_w) #取命令的时候转换了 
 
 
         # -- metrics 后面还需要增加一些需要比较的量
@@ -87,8 +85,6 @@ class PathCommand(CommandTerm):
         Returns:
             The current alpha tensor of shape (num_envs, 1).
         """
-        # self.t_alpha  (num_waypoints,)
-        # self.current_waypoints_index  (num_envs,)
         current_alpha = self.t_alpha[self.current_waypoints_index] 
         return current_alpha.unsqueeze(1)  # (num_envs, 1)
 
@@ -309,6 +305,7 @@ class PathCommand(CommandTerm):
         self.pos_path_w[env_ids] = pos_traj
         self.heading_path_w[env_ids] = yaw_traj
         self.current_waypoints_index[env_ids] = 0
+        self.goal_reached[env_ids] = False
 
 
     def _update_metrics(self):
@@ -335,18 +332,28 @@ class PathCommand(CommandTerm):
         """
         robot_pos = self.robot.data.root_pos_w[:, :3] # (N, 3)
         # robot_quat = self.robot.data.root_quat_w
-        target_pos = self.pos_path_w[torch.arange(self.num_envs), self.current_waypoints_index]  # (N, 3)
+        target_pos_cur = self.pos_path_w[torch.arange(self.num_envs), self.current_waypoints_index]  # (N, 3)
 
-        dis_to_target = torch.norm(target_pos - robot_pos, dim=-1)  # (N,)
+        dis_to_target = torch.norm(target_pos_cur - robot_pos, dim=-1)  # (N,)
         reach_threshold = self.cfg.ranges.waypoint_reach_threshold
         reached = dis_to_target < reach_threshold
         self.current_waypoints_index = torch.where(
-            reached,
+            reached & self.goal_reached,
             torch.clamp(self.current_waypoints_index + 1, max=self.num_waypoints - 1),
             self.current_waypoints_index
         )
-
+        target_pos_final = self.pos_path_w[torch.arange(self.num_envs), -1]
+        goal_dis = torch.norm(target_pos_final - robot_pos, dim=-1)
+        goal_reached =( goal_dis < reach_threshold )&(self.current_waypoints_index >= self.num_waypoints - 1)
+        self.goal_reached = self.goal_reached | goal_reached
+        
         self.obs_slices = self._get_cur_slices(torch.arange(self.num_envs, device=self.device))
+        
+        obs_slices = self.obs_slices.clone()
+        if torch.any(goal_reached):
+            obs_slices[goal_reached] = 0.0
+        self.obs_slices = obs_slices
+        
 
 
 
@@ -375,7 +382,7 @@ class PathCommand(CommandTerm):
 
     def _debug_vis_callback(self, event):
         self.path_waypoints_visualizer.visualize(
-            translations=self.obs_slices[:, :, :3].reshape(-1, 3),
+            translations=self.pos_path_w.reshape(-1, 3),
         ),
         self.goal_visualizer.visualize(
             translations=self.pos_path_w[torch.arange(self.num_envs), -1],

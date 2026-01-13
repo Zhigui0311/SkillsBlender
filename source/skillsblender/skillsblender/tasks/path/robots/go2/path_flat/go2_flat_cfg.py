@@ -19,8 +19,17 @@ class Go2PathEnvCfg(PathEnvCfg):
         self.observations.policy.joint_pos.scale = 1.0
         self.observations.policy.joint_vel.scale = 0.05
 
+        self.actions.joint_pos_actoion.scale = 0.2
+        self.rewards.torques.weight = -0.0005
+        self.rewards.action_rate.weight = -0.05
+        self.rewards.joint_dev.weight = -0.2
         # joint的关节尺度 关节限位
-
+        
+        #版本1
+        self.commands.path_tracking.inpoints.end_to_start_pos = (4.0, 5.0, 0.0)
+        self.commands.path_tracking.ranges.num_waypoints = 100
+        self.commands.path_tracking.ranges.num_lookahead_waypoints = 5
+        self.commands.path_tracking.inpoints.yaw_type = 'decoupled'
 
 
 @configclass
@@ -43,9 +52,10 @@ class Go2PathEnvCfg_PLAY(Go2PathEnvCfg):
         self.curriculum = None
 
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.viewer.asset_name = None
-        self.viewer.origin_type = None
-        self.viewer.origin_type = "world"
-        # self.viewer.eye = (40.0, 40.0, 30.0)
+        # self.viewer.asset_name = ""
+        self.viewer.origin_type = "env" 
+        # self.viewer.origin_type = "world"
+        # self.viewer.eye = (10.0, 10.0, 80.0)
         # self.viewer.lookat = (0.0, 0.0, 0.0)
-        self.commands.path_tracking.debug_vis = False
+        self.commands.path_tracking.debug_vis = True
+        

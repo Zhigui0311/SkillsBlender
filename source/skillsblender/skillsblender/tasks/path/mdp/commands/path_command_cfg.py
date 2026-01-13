@@ -52,7 +52,7 @@ class PathCommandCfg(CommandTermCfg):
         end_heading: tuple[float, float] = None #range for end heading sampling, only for decoupled yaw type
             #这里是需要开始的角度和结束的角度还是结束相对开始的角度差？
             
-    inpoints: InterpolationPoints = MISSING
+    inpoints: InterpolationPoints = InterpolationPoints()
 
  
     @configclass
@@ -61,7 +61,7 @@ class PathCommandCfg(CommandTermCfg):
         num_lookahead_waypoints: int = MISSING  #number of lookahead waypoints
         waypoint_reach_threshold: float = MISSING  #distance threshold to consider a waypoint reached
     
-    ranges: Ranges = MISSING
+    ranges: Ranges = Ranges()
     
     path_waypoints_visualizer_cfg: VisualizationMarkersCfg = WAYPOINTS_MARKER_CFG.replace(
         prim_path="/Visuals/Command/path_waypoints"
@@ -81,7 +81,55 @@ class PathCommandCfg(CommandTermCfg):
     """The configuration for the path goal visualization marker. Defaults to GOAL_SPHERE_MARKER_CFG.
     """
 
+    @property
+    def slice_nums(self) -> int:
+        return 4*self.ranges.num_lookahead_waypoints
 
 
+@configclass
+class JumpPathCommandCfg(PathCommandCfg):
 
+    class_type: type = PathCommand
+
+    resampling_time_range: tuple[float, float] = MISSING
     
+    asset_name: str = "robot"
+    
+    # @configclass
+    # class JumpParams:
+    #     """Parameters for jump path planning.
+    #     """
+    #     jump_height_range: tuple[float, float] = (0.25, 0.4)
+    #     # 判定为沟壑的高度降幅阈值 (米)
+    #     gap_threshold: float = -0.3 
+    #     # 扫描地形时的前向最大距离 (米)
+    #     scan_dist: float = 8.0
+    #     # 扫描精度 (米)
+    #     scan_step: float = 0.1
+    #     # 起跳前的预留距离 (起跳点距离沟壑边缘的距离)
+    #     takeoff_buffer: float = 0.3
+    #     # 落地后的缓冲距离
+    #     landing_buffer: float = 0.5
+        
+    # jump_params: JumpParams = JumpParams()
+    
+    @configclass
+    class JumpParams:
+        jump_height: float = 0.35            # Max height of the parabolic arc
+        gap_threshold: float = -0.4          # Height drop to identify a gap (meters)
+        scan_dist: float = 6.0               # How far to look ahead for gaps
+        scan_step: float = 0.1               # Resolution of terrain scanning
+        takeoff_margin: float = 0.2          # Distance before gap to start arc
+        landing_margin: float = 0.3          # Distance after gap to end arc
+
+    jump_params: JumpParams = JumpParams()
+
+    @configclass
+    class Ranges:
+        num_waypoints: int = MISSING  #total number of waypoints
+        num_lookahead_waypoints: int = MISSING  #number of lookahead waypoints
+        waypoint_reach_threshold: float = MISSING  #distance threshold to consider a waypoint reached
+    
+    ranges: Ranges = MISSING
+    
+

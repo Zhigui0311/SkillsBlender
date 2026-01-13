@@ -5,8 +5,8 @@
 
 from isaaclab.utils import configclass
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
-
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, RslRlSymmetryCfg
+from skillsblender.tasks.path.agents.symmetry import  GO2,go2
 
 @configclass
 class PathRslRlPPOCfg(RslRlOnPolicyRunnerCfg):
@@ -36,6 +36,8 @@ class PathRslRlPPOCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=0.5,
     )
+    
+    
 @configclass
 class GO2PathFlatPPOCfg(PathRslRlPPOCfg):
     num_steps_per_env = 48
@@ -44,8 +46,8 @@ class GO2PathFlatPPOCfg(PathRslRlPPOCfg):
     experiment_name = "go2-path-flat"
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=False,
-        critic_obs_normalization=False,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
@@ -64,3 +66,57 @@ class GO2PathFlatPPOCfg(PathRslRlPPOCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+    
+@configclass
+class GO2PathFlatPPOWithSymmetryCfg(GO2PathFlatPPOCfg):
+        algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,  #4
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95, #1.0,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states#这个函数需要的env obs参数怎么传递进来的？
+        )
+    )
+        
+        
+
+
+
+@configclass
+class GO2JumpPPOWithSymmetryCfg(PathRslRlPPOCfg):
+    # Top-level symmetry configuration
+    symmetry = RslRlSymmetryCfg(
+        use_data_augmentation=True,
+        data_augmentation_func=GO2.compute_symmetric_states
+    )
+    
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16, # Increased for augmented data
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )
+   
+
+    
+    
+    
+    
