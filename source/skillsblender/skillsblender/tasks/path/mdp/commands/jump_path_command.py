@@ -6,18 +6,10 @@ from collections.abc import Sequence
 
 from isaaclab.assets import Articulation
 from isaaclab.managers import CommandTerm
-from isaaclab.markers import VisualizationMarkers #？作用是什么？
-from isaaclab.terrains import TerrainImporter #不用引用地形生成的吗？
+from isaaclab.markers import VisualizationMarkers 
+from isaaclab.terrains import TerrainImporter 
 
-# from isaaclab.utils.math import (quat_apply_inverse,
-#                                 wrap_to_pi,
-#                                 yaw_quat, 
-#                                 quat_from_euler_xyz,
-#                                 euler_xyz_from_quat,
-#                                 random_yaw_orientation
-#                                 )
-
-from skillsblender.skillsblender.tasks.path.mdp.commands.path_command import PathCommand
+from skillsblender.tasks.path.mdp.commands.path_command import PathCommand
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv  
     from .path_command_cfg import PathCommandCfg, JumpPathCommandCfg                                      
@@ -108,8 +100,6 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
         
 #         return pos_trajectory, yaw_trajectory
     
-    
-# source/skillsblender/skillsblender/tasks/path/mdp/commands/path_command.py
 
 class JumpPathCommand(PathCommand):
     """Command that senses terrain to generate parabolic jump trajectories."""

@@ -69,6 +69,7 @@ class GO2PathFlatPPOCfg(PathRslRlPPOCfg):
     
 @configclass
 class GO2PathFlatPPOWithSymmetryCfg(GO2PathFlatPPOCfg):
+        experiment_name = "go2-path-flat-symmetry"
         algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
@@ -88,18 +89,22 @@ class GO2PathFlatPPOWithSymmetryCfg(GO2PathFlatPPOCfg):
         )
     )
         
-        
-
 
 
 @configclass
 class GO2JumpPPOWithSymmetryCfg(PathRslRlPPOCfg):
-    # Top-level symmetry configuration
-    symmetry = RslRlSymmetryCfg(
-        use_data_augmentation=True,
-        data_augmentation_func=GO2.compute_symmetric_states
+    num_steps_per_env = 48
+    max_iterations = 3000
+    save_interval = 200
+    experiment_name = "go2-path-jump"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
     )
-    
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
@@ -113,6 +118,10 @@ class GO2JumpPPOWithSymmetryCfg(PathRslRlPPOCfg):
         lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+        use_data_augmentation=True,
+        data_augmentation_func=GO2.compute_symmetric_states#这个函数需要的env obs参数怎么传递进来的？
+        )
     )
    
 

@@ -1,1 +1,1 @@
-from . import path_flat
+from . import path

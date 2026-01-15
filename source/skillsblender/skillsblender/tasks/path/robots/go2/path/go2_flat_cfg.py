@@ -42,7 +42,7 @@ class Go2PathEnvCfg_PLAY(Go2PathEnvCfg):
         self.sim.dt = 0.005 # 200Hz Simulation frequency
         self.decimation = 4 # 50Hz control frequency
         self.episode_length_s = 10.0 
-        self.scene.num_envs = 32
+        self.scene.num_envs = 8
         self.scene.env_spacing = 2.5
         
         self.sim.render_interval = 2  
@@ -58,4 +58,7 @@ class Go2PathEnvCfg_PLAY(Go2PathEnvCfg):
         # self.viewer.eye = (10.0, 10.0, 80.0)
         # self.viewer.lookat = (0.0, 0.0, 0.0)
         self.commands.path_tracking.debug_vis = True
+        self.events.push_robot = None
+        self.events.base_external_force_torque = None
+        self.observations.policy.enable_corruption = False
         

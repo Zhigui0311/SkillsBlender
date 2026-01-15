@@ -263,28 +263,41 @@ def _transform_actions_left_right(actions: torch.Tensor) -> torch.Tensor:
 # =============================================================================
 # Joint mapping helpers
 # =============================================================================
-"""
-Go2 joint ordering:
-[
-    'FL_hip_joint',   'FR_hip_joint',   'RL_hip_joint',   'RR_hip_joint',
-    'FL_thigh_joint', 'FR_thigh_joint', 'RL_thigh_joint', 'RR_thigh_joint',
-    'FL_calf_joint',  'FR_calf_joint',  'RL_calf_joint',  'RR_calf_joint'
-]
-"""
 
 
 def _switch_go2_joints_left_right(joint_data: torch.Tensor) -> torch.Tensor:
     """Swap left/right legs and flip hip signs.
 
     Works for shape (..., 12).
-    """
+    """    
+    #针对 unitree.py 定义的 [FR, FL, RR, RL] 顺序进行交换，之前的顺序不对
     joint_data_switched = torch.zeros_like(joint_data)
 
-    # left <-- right
-    joint_data_switched[..., [0, 4, 8, 2, 6, 10]] = joint_data[..., [1, 5, 9, 3, 7, 11]]
-    # right <-- left
-    joint_data_switched[..., [1, 5, 9, 3, 7, 11]] = joint_data[..., [0, 4, 8, 2, 6, 10]]
+    # 交换 FR (0,1,2) 和 FL (3,4,5)
+    joint_data_switched[..., [0, 1, 2]] = joint_data[..., [3, 4, 5]]
+    joint_data_switched[..., [3, 4, 5]] = joint_data[..., [0, 1, 2]]
+    
+    # 交换 RR (6,7,8) 和 RL (9,10,11)
+    joint_data_switched[..., [6, 7, 8]] = joint_data[..., [9, 10, 11]]
+    joint_data_switched[..., [9, 10, 11]] = joint_data[..., [6, 7, 8]]
 
-    # flip sign of hip joints
-    joint_data_switched[..., [0, 1, 2, 3]] *= -1.0
+    # 翻转胯部关节（Hip）的符号：索引是 0, 3, 6, 9
+    joint_data_switched[..., [0, 3, 6, 9]] *= -1.0
     return joint_data_switched
+
+
+# def _switch_go2_joints_left_right(joint_data: torch.Tensor) -> torch.Tensor:
+#     """Swap left/right legs and flip hip signs.
+
+#     Works for shape (..., 12).
+#     """
+#     joint_data_switched = torch.zeros_like(joint_data)
+
+#     # left <-- right
+#     joint_data_switched[..., [0, 4, 8, 2, 6, 10]] = joint_data[..., [1, 5, 9, 3, 7, 11]]
+#     # right <-- left
+#     joint_data_switched[..., [1, 5, 9, 3, 7, 11]] = joint_data[..., [0, 4, 8, 2, 6, 10]]
+
+#     # flip sign of hip joints
+#     joint_data_switched[..., [0, 1, 2, 3]] *= -1.0
+#     return joint_data_switched

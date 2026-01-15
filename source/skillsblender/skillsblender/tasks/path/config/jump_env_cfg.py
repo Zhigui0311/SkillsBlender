@@ -22,52 +22,47 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from skillsblender.assets.robots.unitree import UNITREE_GO2_CFG
+from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg
 import skillsblender.tasks.path.mdp as mdp
 
 
 # ==============================================================================
 # Scene 
 # ==============================================================================
-
-COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
+JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
     num_rows=10,
     num_cols=20,
+    curriculum= True,
+    difficulty_range=(0.0,1.0),
     horizontal_scale=0.1,
     vertical_scale=0.005,
     slope_threshold=0.75,
-    difficulty_range=(0.0, 1.0),
     use_cache=False,
+    border_width = 0.5,
     sub_terrains={
-        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.1),
-        # "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-        #     proportion=0.1, noise_range=(0.01, 0.06), noise_step=0.01, border_width=0.25
-        # ),
-        # "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-        #     proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
-        # ),
-        # "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-        #     proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
-        # ),
-        # "boxes": terrain_gen.MeshRandomGridTerrainCfg(
-        #     proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
-        # ),
-        # "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
-        #     proportion=0.2,
-        #     step_height_range=(0.05, 0.23),
-        #     step_width=0.3,
-        #     platform_width=3.0,
-        #     border_width=1.0,
-        #     holes=False,
-        # ),
-        # "pyramid_stairs_inv": terrain_gen.MeshI
-        #     platform_width=3.0,
-        #     border_width=1.0,
-        #     holes=False,
-        # ),
+        # 1. 基础平地
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.1), #但是我的训练的逻辑是规划路径然后训练
+        
+        # 2. 窄沟壑
+        "narrow_gaps": terrain_gen.MeshGapTerrainCfg(
+            proportion=0.6,
+            ditch_width_range=(0.3, 0.5),  
+            ditch_depth=0.6,              
+            platform_width=2.0,           
+        ),
+        
+        # 3. 宽沟壑：用于进阶跳跃训练 (占比 40%)
+        "wide_gaps": terrain_gen.MeshGapTerrainCfg(
+            proportion=0.3,
+            ditch_width_range=(0.6, 1.0),  # 沟壑宽度 0.6m - 1.0m (挑战 Go2 极限)
+            ditch_depth=1.0,
+            platform_width=2.5,
+        ),
     },
 )
+
 
 GO2_JOINT_NAMES = [
     "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
@@ -76,16 +71,15 @@ GO2_JOINT_NAMES = [
     "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"
 ]
 
-
 @configclass
-class MySceneCfg(InteractiveSceneCfg):
+class MyJumpSceneCfg(InteractiveSceneCfg):
     """Configuration for the terrain scene """
 
     # plane
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
-        terrain_type="generator", # "plane" , "generator"
-        terrain_generator=COBBLESTONE_ROAD_CFG,
+        terrain_type="generator", 
+        terrain_generator=JUMP_TERRAIN_CFG,
         max_init_terrain_level=1,
         collision_group=-1, 
         physics_material=sim_utils.RigidBodyMaterialCfg(
@@ -126,8 +120,6 @@ class MySceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.DistantLightCfg(intensity=750.0, color=(0.75, 0.75, 0.75)),
     )
 
-
-
 # ==============================================================================
 # Events 
 # ==============================================================================
@@ -146,7 +138,6 @@ class EventCfg:
             "dynamic_friction_range": (0.3, 1.0),
             "restitution_range": (0.0, 0.5),
             "num_buckets": 64,
-            # "recompute_inertia": True,
         },
     )
 
@@ -219,7 +210,7 @@ class EventCfg:
 # ==============================================================================
 
 @configclass
-class CommandsCfg:
+class CommandsCfg:       #这里要大改
     """Commands specification for the MDP."""
     
     
@@ -448,7 +439,7 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
     Flat terrain environment configuration for robot navigating along a path.
     """
     # scene
-    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=10.0)
+    scene: InteractiveSceneCfg = MyJumpSceneCfg(num_envs=4096, env_spacing=10.0)
     
     # Observations, Actions, Commands
     observations: ObservationsCfg = ObservationsCfg()
@@ -471,6 +462,3 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
         # self.sim.physics_material = self.scene.terrain.physics_material
         # self.viewer.eye = (3.0, 3.0, 3.0)
         # self.viewer.lookat = (0.0, 0.0, 0.0)
-
-
-
