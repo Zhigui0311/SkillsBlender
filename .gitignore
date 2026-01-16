@@ -22,6 +22,8 @@
 **/*.pyc
 **/*.pb
 SkillsBlender/source/skillsblender/skillsblender/tasks/path/mdp/commands/jump_path_command.py
+**/bak
+**/*.bak
 
 # Docker/Singularity
 **/*.sif

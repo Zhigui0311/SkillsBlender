@@ -338,7 +338,7 @@ class PathCommand(CommandTerm):
         reach_threshold = self.cfg.ranges.waypoint_reach_threshold
         reached = dis_to_target < reach_threshold
         self.current_waypoints_index = torch.where(
-            reached & self.goal_reached,
+            reached ,
             torch.clamp(self.current_waypoints_index + 1, max=self.num_waypoints - 1),
             self.current_waypoints_index
         )

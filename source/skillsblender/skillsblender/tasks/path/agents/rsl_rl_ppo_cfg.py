@@ -89,7 +89,31 @@ class GO2PathFlatPPOWithSymmetryCfg(GO2PathFlatPPOCfg):
         )
     )
         
+@configclass
+class GO2PathFlatVelPPOWithSymmetryCfg(GO2PathFlatPPOWithSymmetryCfg):
+    experiment_name = "go2-path-flat-vel-symmetry"
 
+@configclass
+class GO2testPathFlatVelPPOWithSymmetryCfg(GO2PathFlatPPOWithSymmetryCfg):
+    experiment_name = "go2-path-flat-vel-symmetry-test"        
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,  #4
+        learning_rate=3.0e-4,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95, #1.0,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states#这个函数需要的env obs参数怎么传递进来的？
+        )
+    )
 
 @configclass
 class GO2JumpPPOWithSymmetryCfg(PathRslRlPPOCfg):

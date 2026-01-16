@@ -31,7 +31,6 @@ import skillsblender.tasks.path.mdp as mdp
 # ==============================================================================
 JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
-    border_width=20.0,
     num_rows=10,
     num_cols=20,
     curriculum= True,
@@ -48,16 +47,14 @@ JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
         # 2. 窄沟壑
         "narrow_gaps": terrain_gen.MeshGapTerrainCfg(
             proportion=0.6,
-            ditch_width_range=(0.3, 0.5),  
-            ditch_depth=0.6,              
+            gap_width_range=(0.3, 0.5),               
             platform_width=2.0,           
         ),
         
         # 3. 宽沟壑：用于进阶跳跃训练 (占比 40%)
         "wide_gaps": terrain_gen.MeshGapTerrainCfg(
             proportion=0.3,
-            ditch_width_range=(0.6, 1.0),  # 沟壑宽度 0.6m - 1.0m (挑战 Go2 极限)
-            ditch_depth=1.0,
+            gap_width_range=(0.6, 1.0),  # 沟壑宽度 0.6m - 1.0m (挑战 Go2 极限)
             platform_width=2.5,
         ),
     },
@@ -210,24 +207,23 @@ class EventCfg:
 # ==============================================================================
 
 @configclass
-class CommandsCfg:       #这里要大改
+class CommandsCfg:       
     """Commands specification for the MDP."""
     
     
-    path_tracking = mdp.commands.PathCommandCfg(
+    path_tracking = mdp.commands.JumpPathCommandCfg(
         asset_name="robot",
         resampling_time_range=(3.0, 15.0), # resample every 10-15s
         
-        inpoints=mdp.commands.PathCommandCfg.InterpolationPoints(
-            path_type="linear",
-            height_change=False,
-            end_to_start_pos=(2.0, 10.0,0), # 终点范围
-            yaw_type="decoupled",       
-            start_heading=(-math.pi, 0), 
-            end_heading=(0, math.pi),   
+        jump_params=mdp.commands.JumpPathCommandCfg.JumpParams(
+            jump_height=0.35,           # Max height of the parabolic arc
+            gap_threshold = -0.4 ,         # Height drop to identify a gap (meters)
+            scan_dist= 6.0,          # How far to look ahead for gaps
+            scan_step = 0.1,            # Resolution of terrain scanning
+            takeoff_margin= 0.2,       # Distance before gap to start arc
+            landing_margin = 0.3, 
         ),
-        
-        ranges=mdp.commands.PathCommandCfg.Ranges(
+        ranges=mdp.commands.JumpPathCommandCfg.Ranges(
             num_waypoints=100,           
             num_lookahead_waypoints=6,  
             waypoint_reach_threshold=0.8,
@@ -351,7 +347,6 @@ class ObservationsCfg:
             scale=1.0,
         )
         #可以考虑加上last last
-
         #height_scanner  加不加这个功能？
 
         def __post_init__(self):
@@ -377,11 +372,11 @@ class RewardsCfg:
         weight=2.0, 
         params={"std": 0.5, "command_name": "path_tracking"}
     )
-    # track_z = RewTerm(
-    #     func=mdp.track_path_height_exp, 
-    #     weight=0.5, 
-    #     params={"std": 0.1, "command_name": "path_tracking"}
-    # )
+    track_z = RewTerm(
+        func=mdp.track_path_height_exp, 
+        weight=0.5, 
+        params={"std": 0.1, "command_name": "path_tracking"}
+    )
 
     # --- normalization and penalties ---(防止动作乱动、提升平滑度)
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-1.0)
@@ -392,7 +387,7 @@ class RewardsCfg:
     # 关节姿态正则化：鼓励保持默认站姿
     joint_dev = RewTerm(func=mdp.joint_deviation_l2, weight=-0.1)
     
-    # 非脚部碰撞惩罚
+  
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
@@ -434,7 +429,7 @@ class TerminationsCfg:
 
 
 @configclass
-class PathEnvCfg(ManagerBasedRLEnvCfg):
+class JumpPathEnvCfg(ManagerBasedRLEnvCfg):
     """
     Flat terrain environment configuration for robot navigating along a path.
     """

@@ -61,4 +61,56 @@ class Go2PathEnvCfg_PLAY(Go2PathEnvCfg):
         self.events.push_robot = None
         self.events.base_external_force_torque = None
         self.observations.policy.enable_corruption = False
+
+from isaaclab.managers import RewardTermCfg as RewTerm
+from skillsblender.tasks.path.config.path_env_cfg import RewardsCfg
+
+
+@configclass
+class Go2VelRewardCfg(RewardsCfg):
+    track_velocity_along_path_exp = RewTerm(
+        func=mdp.track_velocity_along_path_exp,
+        weight=1.0,  #根据训练效果调整，先给 1.0 - 2.0
+        params={"std": 0.5, "command_name": "path_tracking"}
+    )
+    
+@configclass
+class Go2PathFlatCfg(Go2PathEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.rewards: RewardsCfg = Go2VelRewardCfg()
+        self.rewards.track_xy.weight = 8.0
+        self.rewards.track_yaw.weight = 0.8
+        self.rewards.track_velocity_along_path_exp.weight = 2.0
+        self.rewards.action_rate.weight = -0.005
+        self.commands.path_tracking.resampling_time_range = (8.0, 12.0)
+
+
         
+        
+@configclass
+class Go2PathFlatEnvCfg_PLAY(Go2PathFlatCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.sim.dt = 0.005 # 200Hz Simulation frequency
+        self.decimation = 4 # 50Hz control frequency
+        self.episode_length_s = 10.0 
+        self.scene.num_envs = 8
+        self.scene.env_spacing = 2.5
+        
+        self.sim.render_interval = 2  
+        
+        self.scene.terrain.max_init_terrain_level = None
+        self.events.base_external_force_torque = None
+        self.curriculum = None
+
+        self.sim.physics_material = self.scene.terrain.physics_material
+        # self.viewer.asset_name = ""
+        self.viewer.origin_type = "env" 
+        # self.viewer.origin_type = "world"
+        # self.viewer.eye = (10.0, 10.0, 80.0)
+        # self.viewer.lookat = (0.0, 0.0, 0.0)
+        self.commands.path_tracking.debug_vis = True
+        self.events.push_robot = None
+        self.events.base_external_force_torque = None
+        self.observations.policy.enable_corruption = False
