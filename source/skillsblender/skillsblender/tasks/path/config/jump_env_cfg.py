@@ -359,69 +359,236 @@ class ObservationsCfg:
 
 @configclass
 class RewardsCfg:
-    """Reward function configuration."""
-    
-    # --- task (基于 path_tracking 指令生成的误差指标) ---
+    """Reward function configuration for jump training."""
+
+    # --- Task rewards (基础路径追踪) ---
     track_xy = RewTerm(
-        func=mdp.track_path_pos_xy_exp, 
-        weight=5.0, 
+        func=mdp.track_path_pos_xy_exp,
+        weight=5.0,
         params={"std": 0.5, "command_name": "path_tracking"}
     )
     track_yaw = RewTerm(
-        func=mdp.track_path_heading_exp, 
-        weight=2.0, 
+        func=mdp.track_path_heading_exp,
+        weight=2.0,
         params={"std": 0.5, "command_name": "path_tracking"}
     )
-    track_z = RewTerm(
-        func=mdp.track_path_height_exp, 
-        weight=0.5, 
-        params={"std": 0.1, "command_name": "path_tracking"}
+
+    # --- Jump-specific rewards (跳跃专用奖励) ---
+    # 跳跃高度追踪：鼓励机器人跟随抛物线轨迹
+    jump_height_tracking = RewTerm(
+        func=mdp.jump_height_tracking,
+        weight=3.0,
+        params={
+            "command_name": "path_tracking",
+            "height_tolerance": 0.15
+        }
     )
 
-    # --- normalization and penalties ---(防止动作乱动、提升平滑度)
+    # 跳跃前向速度：鼓励保持足够的前向动力
+    jump_forward_velocity = RewTerm(
+        func=mdp.jump_forward_velocity,
+        weight=2.0,
+        params={
+            "target_velocity": 1.5,
+            "std": 0.5,
+            "asset_cfg": SceneEntityCfg("robot")
+        }
+    )
+
+    # 跳跃离地高度：鼓励跳得足够高，避免碰到沟壑边缘
+    jump_clearance = RewTerm(
+        func=mdp.jump_clearance_reward,
+        weight=1.5,
+        params={
+            "min_clearance": 0.2,
+            "asset_cfg": SceneEntityCfg("robot")
+        }
+    )
+
+    # 跳跃落地稳定性：鼓励稳定落地
+    jump_landing_stability = RewTerm(
+        func=mdp.jump_landing_stability,
+        weight=2.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"),
+            "landing_time_threshold": 0.2,
+            "velocity_threshold": 0.5
+        }
+    )
+
+    # 跳跃俯仰角控制：鼓励合理的俯仰角
+    jump_pitch_control = RewTerm(
+        func=mdp.jump_pitch_control,
+        weight=1.0,
+        params={
+            "target_pitch_range": (-0.2, 0.2),
+            "asset_cfg": SceneEntityCfg("robot")
+        }
+    )
+
+    # 跳跃腾空时间：奖励合理的腾空时间
+    jump_air_time = RewTerm(
+        func=mdp.jump_air_time_reward,
+        weight=1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"),
+            "min_air_time": 0.3,
+            "max_air_time": 1.5
+        }
+    )
+
+    # --- Regularization (正则化 - 防止动作乱动) ---
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-1.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     torques = RewTerm(func=mdp.joint_torques_l2, weight=-0.0001)
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    
+
     # 关节姿态正则化：鼓励保持默认站姿
     joint_dev = RewTerm(func=mdp.joint_deviation_l2, weight=-0.1)
-    
-  
+
+    # 非脚部碰撞惩罚
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*thigh"), 
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*thigh"),
             "threshold": 1.0
         },
     )
-    
+
     # 存活奖励
     alive_rew = RewTerm(func=mdp.is_alive, weight=1.0)
 
 
+
 @configclass
 class TerminationsCfg:
-    """Termination conditions for the MDP."""
-    
-    #  倒地判定 
+    """Termination conditions for jump training."""
+
+    # 基础终止条件
+    # 倒地判定
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), 
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"),
             "threshold": 1.0
         },
     )
-    
+
     # 超时
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-    
+
     # 偏离路径
     path_deviation = DoneTerm(
         func=mdp.path_deviation,
-        params={"min_threshold":1.0,"max_threshold": 10, "command_name": "path_tracking"},
+        params={"min_threshold": 1.0, "max_threshold": 10, "command_name": "path_tracking"},
     )
+
+    # --- Jump-specific terminations (跳跃专用终止条件) ---
+    # 掉入沟壑
+    jump_gap_fall = DoneTerm(
+        func=mdp.jump_gap_fall,
+        params={
+            "height_threshold": -0.5,
+            "asset_cfg": SceneEntityCfg("robot")
+        }
+    )
+
+    # 过度旋转（翻滚）
+    jump_excessive_rotation = DoneTerm(
+        func=mdp.jump_excessive_rotation,
+        params={
+            "max_roll": 1.2,  # 约70度
+            "max_pitch": 1.2,  # 约70度
+            "asset_cfg": SceneEntityCfg("robot")
+        }
+    )
+
+    # 落地失败
+    jump_landing_failure = DoneTerm(
+        func=mdp.jump_landing_failure,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"),
+            "min_contact_feet": 2,
+            "check_after_air_time": 0.5,
+            "velocity_threshold": 2.0
+        }
+    )
+
+    # 长时间无进展
+    jump_no_progress = DoneTerm(
+        func=mdp.jump_timeout_no_progress,
+        params={
+            "command_name": "path_tracking",
+            "time_threshold": 5.0,
+            "min_progress": 0.1
+        }
+    )
+
+    # 卡在沟壑里
+    jump_stuck = DoneTerm(
+        func=mdp.jump_stuck_in_gap,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"),
+            "time_threshold": 2.0,
+            "velocity_threshold": 0.1,
+            "asset_cfg": SceneEntityCfg("robot")
+        }
+    )
+
+# ==============================================================================
+# Curriculum Learning (跳跃课程学习 - 可选，默认禁用)
+# ==============================================================================
+# 说明: 课程学习可以帮助机器人从简单跳跃任务逐步学习到复杂跳跃任务
+# 如果需要启用，请取消注释以下配置，并在 JumpPathEnvCfg 中添加 curriculum 属性
+
+# @configclass
+# class JumpCurriculumCfg:
+#     """Jump-specific curriculum learning configuration."""
+#
+#     # 沟壑宽度课程: 从窄沟壑逐步增加到宽沟壑
+#     jump_gap_width = CurrTerm(
+#         func=mdp.curriculum_jump_gap_width,
+#         params={
+#             "reward_threshold": 50.0,           # 平均奖励超过此值时增加难度
+#             "initial_gap_range": (0.3, 0.5),   # 初始沟壑宽度范围
+#             "final_gap_range": (0.6, 1.0),     # 最终沟壑宽度范围
+#             "step_size": 0.1                    # 每次增加步长
+#         }
+#     )
+#
+#     # 跳跃高度要求课程: 逐步提高跳跃高度
+#     jump_height_requirement = CurrTerm(
+#         func=mdp.curriculum_jump_height_requirement,
+#         params={
+#             "command_name": "path_tracking",
+#             "reward_threshold": 60.0,
+#             "initial_height": 0.25,            # 初始跳跃高度
+#             "final_height": 0.45,              # 最终跳跃高度
+#             "step_size": 0.05
+#         }
+#     )
+#
+#     # 地形混合课程: 逐步增加跳跃地形比例
+#     jump_terrain_mix = CurrTerm(
+#         func=mdp.curriculum_jump_terrain_mix,
+#         params={
+#             "reward_threshold": 55.0,
+#             "max_jump_proportion": 0.9         # 跳跃地形的最大比例
+#         }
+#     )
+#
+#     # 速度要求课程: 逐步提高跳跃时的速度要求 (可选)
+#     # jump_speed_requirement = CurrTerm(
+#     #     func=mdp.curriculum_jump_speed_requirement,
+#     #     params={
+#     #         "reward_threshold": 65.0,
+#     #         "initial_speed": 1.0,
+#     #         "final_speed": 2.0,
+#     #         "step_size": 0.1
+#     #     }
+#     # )
+
 
 
 
@@ -431,29 +598,39 @@ class TerminationsCfg:
 @configclass
 class JumpPathEnvCfg(ManagerBasedRLEnvCfg):
     """
-    Flat terrain environment configuration for robot navigating along a path.
+    Jump terrain environment configuration for robot learning to jump over gaps.
+
+    如需启用跳跃课程学习 (Jump Curriculum Learning):
+    1. 取消注释上面的 JumpCurriculumCfg 类
+    2. 在此类中添加: curriculum: JumpCurriculumCfg = JumpCurriculumCfg()
     """
     # scene
     scene: InteractiveSceneCfg = MyJumpSceneCfg(num_envs=4096, env_spacing=10.0)
-    
+
     # Observations, Actions, Commands
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
-    
+
     # MDP
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
+
+    # 如需启用跳跃课程学习，取消下面一行的注释 (需先取消 JumpCurriculumCfg 的注释)
+    # curriculum: JumpCurriculumCfg = JumpCurriculumCfg()
+
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
-        
+
         self.sim.dt = 0.005 # 200Hz Simulation frequency
         self.decimation = 4 # 50Hz control frequency
-        self.episode_length_s = 10.0 
+        self.episode_length_s = 15.0  # 跳跃任务需要更长的episode时间
 
-        self.sim.render_interval = 2  
-        # self.sim.physics_material = self.scene.terrain.physics_material
-        # self.viewer.eye = (3.0, 3.0, 3.0)
-        # self.viewer.lookat = (0.0, 0.0, 0.0)
+        self.sim.render_interval = 2
+        self.sim.physics_material = self.scene.terrain.physics_material
+        self.viewer.asset_name = "robot"
+        self.viewer.origin_type = "asset"
+        self.viewer.eye = (3.0, 3.0, 3.0)
+        self.viewer.lookat = (0.0, 0.0, 0.0)

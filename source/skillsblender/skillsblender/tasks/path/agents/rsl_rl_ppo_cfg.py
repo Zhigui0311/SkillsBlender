@@ -58,11 +58,11 @@ class GO2PathFlatPPOCfg(PathRslRlPPOCfg):
         clip_param=0.2,
         entropy_coef=0.01,
         num_learning_epochs=5,
-        num_mini_batches=4,
+        num_mini_batches=16,  # 统一参数: 4 → 16 (与对称版本一致)
         learning_rate=1.0e-3,
         schedule="adaptive",
         gamma=0.99,
-        lam=1.0,
+        lam=0.95,  # 统一参数: 1.0 → 0.95 (与对称版本一致)
         desired_kl=0.01,
         max_grad_norm=1.0,
     )

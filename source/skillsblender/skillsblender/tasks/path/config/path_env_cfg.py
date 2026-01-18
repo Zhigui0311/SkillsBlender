@@ -69,14 +69,6 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
     },
 )
 
-GO2_JOINT_NAMES = [
-    "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
-    "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
-    "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
-    "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"
-]
-
-
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
     """Configuration for the terrain scene """
@@ -215,6 +207,37 @@ class EventCfg:
     )
 
 # ==============================================================================
+# Curriculum Learning (课程学习 - 可选，默认禁用)
+# ==============================================================================
+# 说明: 课程学习可以帮助机器人从简单任务逐步学习到复杂任务
+# 如果需要启用，请取消注释以下配置，并在 PathEnvCfg 中添加 curriculum 属性
+
+# @configclass
+# class CurriculumCfg:
+#     """Curriculum learning configuration."""
+#
+#     # 路径长度课程: 从短路径逐步增加到长路径
+#     path_length = CurrTerm(
+#         func=mdp.curriculum_path_length,
+#         params={
+#             "command_name": "path_tracking",
+#             "initial_range": (2.5, 3.5),  # 初始路径长度范围
+#             "final_range": (2.5, 6.0),    # 最终路径长度范围
+#             "reward_threshold": 50.0      # 平均奖励超过此值时增加难度
+#         }
+#     )
+#
+#     # 速度要求课程: 逐步提高速度要求 (可选)
+#     # velocity_requirement = CurrTerm(
+#     #     func=mdp.curriculum_velocity_requirement,
+#     #     params={
+#     #         "initial_velocity": 0.5,
+#     #         "final_velocity": 1.5,
+#     #         "reward_threshold": 60.0
+#     #     }
+#     # )
+
+# ==============================================================================
 # MDP Settings 
 # ==============================================================================
 
@@ -230,7 +253,7 @@ class CommandsCfg:
         inpoints=mdp.commands.PathCommandCfg.InterpolationPoints(
             path_type="linear",
             height_change=False,
-            end_to_start_pos=(2.0, 10.0,0), # 终点范围
+            end_to_start_pos=(2.5, 6.0, 0), # 终点范围
             yaw_type="decoupled",       
             start_heading=(-math.pi, 0), 
             end_heading=(0, math.pi),   
@@ -249,12 +272,7 @@ class CommandsCfg:
 class ActionsCfg:
     """Actions specification for the MDP."""
     joint_pos_actoion = mdp.JointPositionActionCfg(
-        asset_name="robot", 
-        joint_names=GO2_JOINT_NAMES,  
-        # joint_names=[".*"], 
-        scale=0.25, 
-        use_default_offset=True, 
-        clip={".*": (-100.0, 100.0)}
+        asset_name="robot", joint_names=[".*"], scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)}
     )
 
 
@@ -271,7 +289,15 @@ class ObservationsCfg:
             scale = 1.0,
             params={"command_name": "path_tracking"}
         )
-    
+        
+        # ---  Proprioception ---
+        # base_lin_vel = ObsTerm(
+        #     func=mdp.base_lin_vel, 
+        #     noise=Unoise(n_min=-0.1, n_max=0.1),
+        #     clip=(-100.0,100.0),
+        #     scale=1.0,
+        # )
+        
         base_ang_vel = ObsTerm(
             func=mdp.base_ang_vel, 
             noise=Unoise(n_min=-0.2, n_max=0.2),
@@ -289,14 +315,14 @@ class ObservationsCfg:
         # ---  Robot Joint States ---
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES , preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
         
         joint_vel = ObsTerm(
             func=mdp.joint_vel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
@@ -342,14 +368,14 @@ class ObservationsCfg:
     
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
         
         joint_vel = ObsTerm(
             func=mdp.joint_vel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
@@ -360,8 +386,7 @@ class ObservationsCfg:
             scale=1.0,
         )
         #可以考虑加上last last
-
-        #height_scanner  加不加这个功能？
+        #height_scanner  加不加这个功能？现在不能加 暂时都不能有
 
         def __post_init__(self):
             self.enable_corruption = False
@@ -374,21 +399,21 @@ class ObservationsCfg:
 @configclass
 class RewardsCfg:
     """Reward function configuration."""
-    
+
     # --- task (基于 path_tracking 指令生成的误差指标) ---
     track_xy = RewTerm(
-        func=mdp.track_path_pos_xy_exp, 
-        weight=5.0, 
+        func=mdp.track_path_pos_xy_exp,
+        weight=5.0,
         params={"std": 0.5, "command_name": "path_tracking"}
     )
     track_yaw = RewTerm(
-        func=mdp.track_path_heading_exp, 
-        weight=2.0, 
+        func=mdp.track_path_heading_exp,
+        weight=2.0,
         params={"std": 0.5, "command_name": "path_tracking"}
     )
     # track_z = RewTerm(
-    #     func=mdp.track_path_height_exp, 
-    #     weight=0.5, 
+    #     func=mdp.track_path_height_exp,
+    #     weight=0.5,
     #     params={"std": 0.1, "command_name": "path_tracking"}
     # )
 
@@ -397,29 +422,110 @@ class RewardsCfg:
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     torques = RewTerm(func=mdp.joint_torques_l2, weight=-0.0001)
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    
+
     # 关节姿态正则化：鼓励保持默认站姿
     joint_dev = RewTerm(func=mdp.joint_deviation_l2, weight=-0.1)
-    
+
     # 非脚部碰撞惩罚
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*thigh"), 
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*thigh"),
             "threshold": 1.0
         },
     )
-    
+
     # 存活奖励
     alive_rew = RewTerm(func=mdp.is_alive, weight=1.0)
+
+    # --- 基础运动质量奖励 ---
+    flat_orientation_l2 = RewTerm(
+        func=mdp.flat_orientation_l2,
+        params={},
+        weight=-2.0  # 惩罚机体倾斜
+    )
+
+    feet_air_time = RewTerm(
+        func=mdp.feet_air_time,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"), "threshold": 0.5},
+        weight=0.5  # 鼓励合理腾空时间
+    )
+
+    # ========================================================================
+    # 以下是新增奖励 - 已禁用，请根据需要逐个启用并调试
+    # ========================================================================
+
+    # # NEW: 速度追踪奖励 (鼓励沿路径方向运动)
+    # track_velocity = RewTerm(
+    #     func=mdp.track_velocity_along_path_exp,
+    #     weight=3.0,
+    #     params={"std": 0.5, "command_name": "path_tracking"}
+    # )
+
+    # # 高度保持
+    # base_height_l2 = RewTerm(
+    #     func=mdp.base_height_l2,
+    #     params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")},
+    #     weight=-1.0
+    # )
+
+    # # 关节加速度惩罚
+    # joint_acc_l2 = RewTerm(
+    #     func=mdp.joint_acc_l2,
+    #     params={},
+    #     weight=-2.5e-7
+    # )
+
+    # # 步宽约束 (⚠️ 需要调整target_width参数)
+    # feet_stride_width_penalty = RewTerm(
+    #     func=mdp.feet_stride_width_penalty,
+    #     weight=-1.0,
+    #     params={
+    #         "sensor_cfg": SceneEntityCfg(
+    #             name="contact_forces",
+    #             body_names=".*_calf"  # 使用calf而不是foot
+    #         ),
+    #         "target_width": 0.18,  # ⚠️ 改为0.18m (GO2髋宽约0.19m)
+    #         "tolerance": 0.05,
+    #     },
+    # )
+
+    # # 步态对称性 (⚠️ 可能过于严格)
+    # gait_symmetry = RewTerm(
+    #     func=mdp.gait_symmetry_reward,
+    #     weight=0.5,  # 降低权重
+    #     params={"asset_cfg": SceneEntityCfg("robot")}
+    # )
+
+    # # 终点减速
+    # near_goal_velocity = RewTerm(
+    #     func=mdp.near_goal_velocity_penalty,
+    #     weight=-2.0,
+    #     params={
+    #         "command_name": "path_tracking",
+    #         "distance_threshold": 1.0,
+    #         "max_velocity": 0.5
+    #     }
+    # )
+
+    # # 终点稳定性
+    # goal_stability = RewTerm(
+    #     func=mdp.goal_reached_stability_reward,
+    #     weight=3.0,
+    #     params={
+    #         "command_name": "path_tracking",
+    #         "distance_threshold": 0.5,
+    #         "velocity_threshold": 0.2
+    #         }
+    # )    
 
 
 @configclass
 class TerminationsCfg:
     """Termination conditions for the MDP."""
     
-    #  倒地判定 
+    # 1. 倒地判定 (Base 接触地面)
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
         params={
@@ -428,13 +534,20 @@ class TerminationsCfg:
         },
     )
     
-    # 超时
+    # 2. 超时
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     
-    # 偏离路径
+    # 3. [Custom] 偏离路径太远终止
     path_deviation = DoneTerm(
         func=mdp.path_deviation,
         params={"min_threshold":1.0,"max_threshold": 10, "command_name": "path_tracking"},
+    )
+
+    # === 新增姿态终止 ===  termination
+    bad_orientation = DoneTerm(
+        func=mdp.bad_orientation,
+        params={"limit_angle": 0.5},  # 约 30 度
+        time_out=False
     )
 
 
@@ -446,31 +559,38 @@ class TerminationsCfg:
 class PathEnvCfg(ManagerBasedRLEnvCfg):
     """
     Flat terrain environment configuration for robot navigating along a path.
+
+    如需启用课程学习 (Curriculum Learning):
+    1. 取消注释上面的 CurriculumCfg 类
+    2. 在此类中添加: curriculum: CurriculumCfg = CurriculumCfg()
     """
     # scene
-    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=10.0)
-    
+    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=5.0)
+
     # Observations, Actions, Commands
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
-    
+
     # MDP
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
+
+    # 如需启用课程学习，取消下面一行的注释 (需先取消 CurriculumCfg 的注释)
+    # curriculum: CurriculumCfg = CurriculumCfg()
+
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
-        
+
         self.sim.dt = 0.005 # 200Hz Simulation frequency
         self.decimation = 4 # 50Hz control frequency
-        self.episode_length_s = 10.0 
+        self.episode_length_s = 10.0  # Episode length
 
-        self.sim.render_interval = 2  
-        # self.sim.physics_material = self.scene.terrain.physics_material
-        # self.viewer.eye = (3.0, 3.0, 3.0)
-        # self.viewer.lookat = (0.0, 0.0, 0.0)
-
-
-
+        self.sim.render_interval = 2
+        self.sim.physics_material = self.scene.terrain.physics_material
+        self.viewer.asset_name = "robot"
+        self.viewer.origin_type = "asset"
+        self.viewer.eye = (3.0, 3.0, 3.0)
+        self.viewer.lookat = (0.0, 0.0, 0.0)

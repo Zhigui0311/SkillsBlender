@@ -17,7 +17,7 @@ from isaaclab.utils import configclass
 
 from skillsblender.assets.robots import unitree_actuators
 
-UNITREE_MODEL_DIR = "/home/yincegao/gyc/unitree_model"  # Replace with the actual path to your unitree_model directory
+UNITREE_MODEL_DIR = "/home/gyc/repos/unitree_model"  # Replace with the actual path to your unitree_model directory
 UNITREE_ROS_DIR = "/home/yincegao/gyc/unitree_ros"  # Replace with the actual path to your unitree_ros package
 
 
