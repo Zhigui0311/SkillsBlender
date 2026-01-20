@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import Articulation  # [新增] 导入 Articulation
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import wrap_to_pi
+import isaaclab.utils.warp as warp_utils
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -353,7 +354,8 @@ def jump_height_tracking(
 def jump_clearance_reward(
     env: ManagerBasedRLEnv,
     min_clearance: float = 0.2,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    command_name: str = "path_tracking"
 ) -> torch.Tensor:
     """
     跳跃离地高度奖励。
@@ -361,12 +363,41 @@ def jump_clearance_reward(
     """
     asset: Articulation = env.scene[asset_cfg.name]
 
-    # 获取机器人base高度
-    base_height = asset.data.root_pos_w[:, 2]
+    # 获取机器人base高度和XY位置
+    robot_pos = asset.data.root_pos_w[:, :3]
+    base_height = robot_pos[:, 2]
+    robot_xy = robot_pos[:, :2]
 
-    # 获取机器人下方地面高度（通过地形查询）
-    robot_xy = asset.data.root_pos_w[:, :2]
-    ground_height = env.scene.terrain.terrain_generator.height_field_raw.sample(robot_xy)
+    # 获取 JumpPathCommand 以访问 warp_mesh
+    command = env.command_manager.get_term(command_name)
+
+    # 使用 raycast 查询机器人下方的地面高度
+    # 从机器人位置上方 10m 处向下发射射线
+    ray_starts = torch.cat([
+        robot_xy,
+        base_height.unsqueeze(-1) + 10.0  # 从base上方10m处开始
+    ], dim=-1)
+
+    ray_directions = torch.tensor(
+        [[0.0, 0.0, -1.0]],
+        device=robot_xy.device
+    ).expand(len(robot_xy), -1)
+
+    # 执行 raycast
+    ray_hits, _, _, _ = warp_utils.raycast_mesh(
+        ray_starts=ray_starts,
+        ray_directions=ray_directions,
+        mesh=command.warp_mesh,
+        max_dist=20.0
+    )
+
+    # 提取地面高度（Z坐标）
+    # 如果射线未命中（返回inf），使用base_height作为fallback
+    ground_height = torch.where(
+        torch.isinf(ray_hits[:, 2]),
+        base_height,  # Fallback
+        ray_hits[:, 2]
+    )
 
     # 计算离地间隙
     clearance = base_height - ground_height

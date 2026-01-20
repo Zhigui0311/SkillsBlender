@@ -453,7 +453,7 @@ class RewardsCfg:
     )
 
     # ========================================================================
-    # 以下是新增奖励 - 已禁用，请根据需要逐个启用并调试
+    # 以下是新增奖励 已禁用，请根据需要逐个启用并调试
     # ========================================================================
 
     # # NEW: 速度追踪奖励 (鼓励沿路径方向运动)
@@ -477,26 +477,26 @@ class RewardsCfg:
     #     weight=-2.5e-7
     # )
 
-    # # 步宽约束 (⚠️ 需要调整target_width参数)
-    # feet_stride_width_penalty = RewTerm(
-    #     func=mdp.feet_stride_width_penalty,
-    #     weight=-1.0,
-    #     params={
-    #         "sensor_cfg": SceneEntityCfg(
-    #             name="contact_forces",
-    #             body_names=".*_calf"  # 使用calf而不是foot
-    #         ),
-    #         "target_width": 0.18,  # ⚠️ 改为0.18m (GO2髋宽约0.19m)
-    #         "tolerance": 0.05,
-    #     },
-    # )
+    # 步宽约束 (⚠️ 需要调整target_width参数)
+    feet_stride_width_penalty = RewTerm(
+        func=mdp.feet_stride_width_penalty,
+        weight=-1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg(
+                name="contact_forces",
+                body_names=".*_calf"  # 使用calf而不是foot
+            ),
+            "target_width": 0.19,  
+            "tolerance": 0.05,
+        },
+    )
 
-    # # 步态对称性 (⚠️ 可能过于严格)
-    # gait_symmetry = RewTerm(
-    #     func=mdp.gait_symmetry_reward,
-    #     weight=0.5,  # 降低权重
-    #     params={"asset_cfg": SceneEntityCfg("robot")}
-    # )
+    # 步态对称性 (⚠️ 可能过于严格)
+    gait_symmetry = RewTerm(
+        func=mdp.gait_symmetry_reward,
+        weight=0.5,  # 降低权重
+        params={"asset_cfg": SceneEntityCfg("robot")}
+    )
 
     # # 终点减速
     # near_goal_velocity = RewTerm(

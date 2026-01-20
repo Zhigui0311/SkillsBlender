@@ -11,10 +11,12 @@ from isaaclab.markers import VisualizationMarkersCfg
 from skillsblender.tasks.path.config import WAYPOINTS_MARKER_CFG, START_SPHERE_MARKER_CFG, GOAL_SPHERE_MARKER_CFG
 
 
-
 from .path_command import PathCommand
-if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedRLEnv
+from .jump_path_command import JumpPathCommand
+
+# if TYPE_CHECKING:
+#     from isaaclab.envs import ManagerBasedRLEnv
+    
 
 
 @configclass
@@ -33,14 +35,6 @@ class PathCommandCfg(CommandTermCfg):
     class InterpolationPoints:
         """Interpolation points for path planning.
         """
-        #TODO：应该有路径的插值点的设置（依据地形信息）
-        # terrain_type: str = None  #terrain type to consider for path planning
-        # num_key_path_points: int = MISSING # number of path points to generate #加入地形以及路径规划算法后启用
-        # key_path_points : dict = MISSING  # list of key path points [(x1,y1),(x2,y2),...] 
-        # curvature_factor: float = MISSING
-        #曲线弯曲程度 或者说是不使用贝塞尔曲线的插值 还是说直接生成直线
-
-
         # resolution for path interpolation
         path_type: Literal['linear','bezier'] = MISSING
         height_change: bool = MISSING #whether to consider height change in path planning
@@ -81,38 +75,33 @@ class PathCommandCfg(CommandTermCfg):
     """The configuration for the path goal visualization marker. Defaults to GOAL_SPHERE_MARKER_CFG.
     """
 
-    @property
-    def slice_nums(self) -> int:
-        return 4*self.ranges.num_lookahead_waypoints
-
 
 @configclass
-class JumpPathCommandCfg(PathCommandCfg):
+class JumpPathCommandCfg(CommandTermCfg):
+    """Configuration for the JumpPathCommand class.
 
-    class_type: type = PathCommand
+    跳跃命令通过地形扫描生成轨迹，不需要 inpoints 配置。
+    """
+
+    class_type : type = JumpPathCommand
 
     resampling_time_range: tuple[float, float] = MISSING
-    
+
     asset_name: str = "robot"
-    
-    # @configclass
-    # class JumpParams:
-    #     """Parameters for jump path planning.
-    #     """
-    #     jump_height_range: tuple[float, float] = (0.25, 0.4)
-    #     # 判定为沟壑的高度降幅阈值 (米)
-    #     gap_threshold: float = -0.3 
-    #     # 扫描地形时的前向最大距离 (米)
-    #     scan_dist: float = 8.0
-    #     # 扫描精度 (米)
-    #     scan_step: float = 0.1
-    #     # 起跳前的预留距离 (起跳点距离沟壑边缘的距离)
-    #     takeoff_buffer: float = 0.3
-    #     # 落地后的缓冲距离
-    #     landing_buffer: float = 0.5
-        
-    # jump_params: JumpParams = JumpParams()
-    
+
+    # 虚拟的 inpoints 配置（用于兼容性，不会被使用）
+    @configclass
+    class DummyInterpolationPoints:
+        """Dummy interpolation points (not used by JumpPathCommand)."""
+        path_type: Literal['linear','bezier'] = 'linear'
+        height_change: bool = False
+        end_to_start_pos: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        yaw_type: Literal['decoupled','along_path'] = 'along_path'
+        start_heading: tuple[float, float] = None
+        end_heading: tuple[float, float] = None
+
+    inpoints: DummyInterpolationPoints = DummyInterpolationPoints()
+
     @configclass
     class JumpParams:
         jump_height: float = 0.35            # Max height of the parabolic arc
@@ -126,10 +115,24 @@ class JumpPathCommandCfg(PathCommandCfg):
 
     @configclass
     class Ranges:
-        num_waypoints: int = MISSING  #total number of waypoints
-        num_lookahead_waypoints: int = MISSING  #number of lookahead waypoints
-        waypoint_reach_threshold: float = MISSING  #distance threshold to consider a waypoint reached
-    
-    ranges: Ranges = MISSING
-    
+        num_waypoints: int = MISSING         # total number of waypoints
+        num_lookahead_waypoints: int = MISSING  # number of lookahead waypoints
+        waypoint_reach_threshold: float = MISSING  # distance threshold to consider a waypoint reached
+
+    ranges: Ranges = Ranges()
+
+    # 可视化标记配置（复用 PathCommandCfg 的）
+    path_waypoints_visualizer_cfg: VisualizationMarkersCfg = WAYPOINTS_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/path_waypoints"
+    )
+
+    path_start_visualizer_cfg: VisualizationMarkersCfg = START_SPHERE_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/path_start"
+    )
+
+    path_goal_visualizer_cfg: VisualizationMarkersCfg = GOAL_SPHERE_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/path_goal"
+    )
+
+    # debug_vis: bool = False
 

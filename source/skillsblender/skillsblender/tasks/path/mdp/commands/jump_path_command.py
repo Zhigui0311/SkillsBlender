@@ -6,13 +6,14 @@ from collections.abc import Sequence
 
 from isaaclab.assets import Articulation
 from isaaclab.managers import CommandTerm
-from isaaclab.markers import VisualizationMarkers 
-from isaaclab.terrains import TerrainImporter 
+from isaaclab.markers import VisualizationMarkers
+from isaaclab.terrains import TerrainImporter
+import isaaclab.utils.warp as warp_utils
 
 from skillsblender.tasks.path.mdp.commands.path_command import PathCommand
 if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedRLEnv 
-    from .path_command_cfg import PathCommandCfg, JumpPathCommandCfg                                      
+    from isaaclab.envs import ManagerBasedRLEnv
+    from .path_command_cfg import JumpPathCommandCfg
 
 import isaaclab.sim as sim_utils
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
@@ -20,6 +21,32 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 class JumpPathCommand(PathCommand):
     """Command that senses terrain to generate parabolic jump trajectories."""
     cfg: JumpPathCommandCfg
+
+    def __init__(self, cfg: JumpPathCommandCfg, env: ManagerBasedRLEnv):
+        """Initialize the JumpPathCommand and create warp mesh for terrain queries.
+
+        Args:
+            cfg: The configuration for the JumpPathCommand.
+            env: The environment the command generator is used in.
+        """
+        # Call parent class initialization
+        super().__init__(cfg, env)
+
+        # Get terrain configuration and recreate TerrainGenerator to access mesh
+        terrain_importer: TerrainImporter = env.scene.terrain
+        terrain_cfg = terrain_importer.cfg.terrain_generator
+
+        # Recreate terrain generator to get the terrain mesh
+        # (TerrainImporter doesn't save the mesh after initialization)
+        from isaaclab.terrains import TerrainGenerator
+        terrain_generator = TerrainGenerator(cfg=terrain_cfg, device=self.device)
+
+        # Convert trimesh to warp mesh for GPU-accelerated raycasting
+        self.warp_mesh = warp_utils.convert_to_warp_mesh(
+            points=terrain_generator.terrain_mesh.vertices,
+            indices=terrain_generator.terrain_mesh.faces,
+            device=self.device
+        )
 
     def _generate_trajectory(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -56,13 +83,34 @@ class JumpPathCommand(PathCommand):
             if xy_min is not None:
                 check_xy = torch.max(torch.min(check_xy, xy_max), xy_min)
 
-            # Query terrain height at this position
-            # Note: terrain might not have a direct get_height_at method, so we use a safe approach
-            try:
-                h = self._env.scene.terrain.terrain_mesh.sample_points(check_xy.unsqueeze(1))[:, 0, 2]
-            except:
-                # If terrain sampling fails, assume flat ground
-                h = base_h
+            # Query terrain height at this position using warp raycast
+            # Create rays starting from high above (100m) and pointing downward
+            ray_starts = torch.cat([
+                check_xy,  # XY position
+                torch.ones(num_batch, 1, device=self.device) * 100.0  # Z = 100m above
+            ], dim=-1)  # Shape: (num_batch, 3)
+
+            # Ray direction: straight down (0, 0, -1)
+            ray_directions = torch.tensor(
+                [[0.0, 0.0, -1.0]],
+                device=self.device
+            ).expand(num_batch, -1)  # Shape: (num_batch, 3)
+
+            # Perform raycast to find ground height
+            ray_hits, _, _, _ = warp_utils.raycast_mesh(
+                ray_starts=ray_starts,
+                ray_directions=ray_directions,
+                mesh=self.warp_mesh,
+                max_dist=200.0  # Max raycast distance (100m down)
+            )
+
+            # Extract Z coordinate as terrain height
+            # If ray misses (returns inf), use base height as fallback
+            h = torch.where(
+                torch.isinf(ray_hits[:, 2]),
+                base_h,  # Fallback to base height if raycast misses
+                ray_hits[:, 2]  # Use raycast Z coordinate
+            )
 
             # Detect gap start (height drops)
             is_gap = (h - base_h) < self.cfg.jump_params.gap_threshold

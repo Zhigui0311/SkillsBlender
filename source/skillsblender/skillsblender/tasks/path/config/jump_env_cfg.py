@@ -401,7 +401,8 @@ class RewardsCfg:
         weight=1.5,
         params={
             "min_clearance": 0.2,
-            "asset_cfg": SceneEntityCfg("robot")
+            "asset_cfg": SceneEntityCfg("robot"),
+            "command_name": "path_tracking"
         }
     )
 
@@ -536,12 +537,7 @@ class TerminationsCfg:
         }
     )
 
-# ==============================================================================
-# Curriculum Learning (跳跃课程学习 - 可选，默认禁用)
-# ==============================================================================
-# 说明: 课程学习可以帮助机器人从简单跳跃任务逐步学习到复杂跳跃任务
-# 如果需要启用，请取消注释以下配置，并在 JumpPathEnvCfg 中添加 curriculum 属性
-
+# ==================================================== 帮我看看go2_jump_cfg.py还需要改吗
 # @configclass
 # class JumpCurriculumCfg:
 #     """Jump-specific curriculum learning configuration."""
@@ -605,7 +601,7 @@ class JumpPathEnvCfg(ManagerBasedRLEnvCfg):
     2. 在此类中添加: curriculum: JumpCurriculumCfg = JumpCurriculumCfg()
     """
     # scene
-    scene: InteractiveSceneCfg = MyJumpSceneCfg(num_envs=4096, env_spacing=10.0)
+    scene: MyJumpSceneCfg = MyJumpSceneCfg(num_envs=4096, env_spacing=10.0)
 
     # Observations, Actions, Commands
     observations: ObservationsCfg = ObservationsCfg()

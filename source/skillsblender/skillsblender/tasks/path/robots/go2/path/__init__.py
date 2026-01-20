@@ -108,3 +108,12 @@ gym.register(
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
     },
 )
+
+gym.register(
+    id="go2-path-jump-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_jump_cfg:Go2JumpEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
+    },
+)
