@@ -470,7 +470,7 @@ class RewardsCfg:
     #     weight=-2.5e-7
     # )
 
-    # 步宽约束 (⚠️ 需要调整target_width参数)
+    # 步宽约束 ( 需要调整target_width参数)
     feet_stride_width_penalty = RewTerm(
         func=mdp.feet_stride_width_penalty,
         weight=-1.0,
@@ -484,7 +484,7 @@ class RewardsCfg:
         },
     )
 
-    # 步态对称性 (⚠️ 可能过于严格)
+    # 步态对称性 (可能过于严格)
     gait_symmetry = RewTerm(
         func=mdp.gait_symmetry_reward,
         weight=0.5,  # 降低权重
@@ -512,25 +512,8 @@ class RewardsCfg:
     #         "velocity_threshold": 0.2
     #         }
     # )    
-
-     # 加强足端横向距离约束                                                               
-                                                                                               
-    feet_stride_width_penalty = RewTerm(                                                 
-        func=mdp.feet_stride_width_penalty,                                              
-        weight=-3.0,  # 增加权重                                                         
-        params={                                                                         
-            "sensor_cfg": SceneEntityCfg(                                                
-            name="contact_forces",                                                   
-            body_names=".*_calf"                                                     
-        ),                                                                           
-            "target_width": 0.19,                                                        
-            "tolerance": 0.03,  # 减小容忍度                                             
-                                                                                               
-        },                                                                               
-    )                                                                                    
-                                                                                           
-    # 添加hip关节角度约束                                                                
-                                                                                               
+                                                                                                                                                     
+    # 添加hip关节角度约束                                                                                                                                                            
     hip_angle_penalty = RewTerm(                                                         
         func=mdp.hip_joint_angle_penalty,                                                
         weight=-2.0,                                                                     
