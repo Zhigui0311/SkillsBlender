@@ -529,3 +529,39 @@ def jump_air_time_reward(
 
     return reward
 
+def hip_joint_angle_penalty(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    max_hip_angle: float = 0.15
+) -> torch.Tensor:
+    """
+    惩罚hip关节角度过大，防止腿外八字。
+    hip关节控制腿的横向展开，限制其角度可以防止腿张太开。
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # 获取所有关节位置
+    joint_pos = asset.data.joint_pos
+
+    # GO2的关节顺序: FR_hip, FR_thigh, FR_calf, FL_hip, FL_thigh, FL_calf,
+    #                RR_hip, RR_thigh, RR_calf, RL_hip, RL_thigh, RL_calf
+    # hip关节索引: 0(FR), 3(FL), 6(RR), 9(RL)
+    # FR和RR的hip应该是负值（向内），FL和RL应该是正值（向内）
+
+    if joint_pos.shape[1] >= 12:
+        fr_hip = joint_pos[:, 0]  # FR_hip_joint
+        fl_hip = joint_pos[:, 3]  # FL_hip_joint
+        rr_hip = joint_pos[:, 6]  # RR_hip_joint
+        rl_hip = joint_pos[:, 9]  # RL_hip_joint
+
+        # 计算hip角度的绝对值（偏离中立位置的程度）
+        # 正常站立时，hip应该接近0或略微向内
+        fr_penalty = torch.clamp(torch.abs(fr_hip) - max_hip_angle, min=0.0)
+        fl_penalty = torch.clamp(torch.abs(fl_hip) - max_hip_angle, min=0.0)
+        rr_penalty = torch.clamp(torch.abs(rr_hip) - max_hip_angle, min=0.0)
+        rl_penalty = torch.clamp(torch.abs(rl_hip) - max_hip_angle, min=0.0)
+
+        return torch.square(fr_penalty + fl_penalty + rr_penalty + rl_penalty)
+    else:
+        return torch.zeros(env.num_envs, device=env.device)
+

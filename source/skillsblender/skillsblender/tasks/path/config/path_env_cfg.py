@@ -456,13 +456,6 @@ class RewardsCfg:
     # 以下是新增奖励 已禁用，请根据需要逐个启用并调试
     # ========================================================================
 
-    # # NEW: 速度追踪奖励 (鼓励沿路径方向运动)
-    # track_velocity = RewTerm(
-    #     func=mdp.track_velocity_along_path_exp,
-    #     weight=3.0,
-    #     params={"std": 0.5, "command_name": "path_tracking"}
-    # )
-
     # # 高度保持
     # base_height_l2 = RewTerm(
     #     func=mdp.base_height_l2,
@@ -520,6 +513,32 @@ class RewardsCfg:
     #         }
     # )    
 
+     # 加强足端横向距离约束                                                               
+                                                                                               
+    feet_stride_width_penalty = RewTerm(                                                 
+        func=mdp.feet_stride_width_penalty,                                              
+        weight=-3.0,  # 增加权重                                                         
+        params={                                                                         
+            "sensor_cfg": SceneEntityCfg(                                                
+            name="contact_forces",                                                   
+            body_names=".*_calf"                                                     
+        ),                                                                           
+            "target_width": 0.19,                                                        
+            "tolerance": 0.03,  # 减小容忍度                                             
+                                                                                               
+        },                                                                               
+    )                                                                                    
+                                                                                           
+    # 添加hip关节角度约束                                                                
+                                                                                               
+    hip_angle_penalty = RewTerm(                                                         
+        func=mdp.hip_joint_angle_penalty,                                                
+        weight=-2.0,                                                                     
+        params={                                                                         
+            "asset_cfg": SceneEntityCfg("robot"),                                        
+            "max_hip_angle": 0.15  # 约8.6度                                                                                                                                
+          }                                                                                
+       )     
 
 @configclass
 class TerminationsCfg:
