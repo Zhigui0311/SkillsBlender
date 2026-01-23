@@ -60,8 +60,8 @@ class PathCommand(CommandTerm):
         # -- path:(x,y,z,yaw/heading)
         self.pos_path_w = torch.zeros(self.num_envs, self.num_waypoints, 3, device=self.device)
         self.heading_path_w = torch.zeros(self.num_envs, self.num_waypoints, 1, device=self.device) #？！这个角度需要分析一下是相对于什么的角度，还需要转化成四元数之后使用 这个好一点
-        # self.pos_path_b = torch.zeros_like(self.pos_path_w)
-        # self.heading_path_b = torch.zeros_like(self.heading_path_w) #取命令的时候转换了 
+        self.pos_path_w_cur = torch.zeros(self.num_envs, 3, device=self.device)
+        self.heading_path_b_cur = torch.zeros(self.num_envs, 1, device=self.device)
 
 
         # -- metrics 后面还需要增加一些需要比较的量
@@ -88,6 +88,27 @@ class PathCommand(CommandTerm):
         current_alpha = self.t_alpha[self.current_waypoints_index] 
         return current_alpha.unsqueeze(1)  # (num_envs, 1)
 
+    @property
+    def robot_pos_w(self) -> torch.Tensor:
+        return self.robot.data.root_pos_w
+    
+    @property
+    def robot_heading_w(self) -> torch.Tensor:
+        return self.robot.data.heading_w
+    
+    @property
+    def robot_velocity_w(self) -> torch.Tensor:
+        return self.robot.data.root_lin_vel_w
+    
+    #下面这两个量还没有独立的取出来
+    @property
+    def target_pos_w(self) -> torch.Tensor:
+        return self.pos_path_w_cur
+    
+    @property
+    def target_heading_b(self) -> torch.Tensor:
+        return self.heading_path_b_cur
+    
     # @property
     # def start_pos_w(self) -> torch.Tensor:
     #     """Get the start position of the path in world frame for each environment.
@@ -95,6 +116,9 @@ class PathCommand(CommandTerm):
     #         The start position tensor of shape (num_envs, 3).
     #     """
     #     return self.pos_path_w[:, 0, :]
+
+
+
 
     # -- Functions
     def _get_env_xy_bounds(self, env_ids: torch.Tensor) -> tuple[torch.Tensor | None, torch.Tensor | None]:
@@ -304,6 +328,7 @@ class PathCommand(CommandTerm):
         pos_traj, yaw_traj = self._generate_trajectory(env_ids)
         self.pos_path_w[env_ids] = pos_traj
         self.heading_path_w[env_ids] = yaw_traj
+        self.pos_path_w_cur = self.pos_path_w[env_ids, 0, :]
         self.current_waypoints_index[env_ids] = 0
         self.goal_reached[env_ids] = False
 
@@ -333,7 +358,6 @@ class PathCommand(CommandTerm):
         robot_pos = self.robot.data.root_pos_w[:, :3] # (N, 3)
         # robot_quat = self.robot.data.root_quat_w
         target_pos_cur = self.pos_path_w[torch.arange(self.num_envs), self.current_waypoints_index]  # (N, 3)
-
         dis_to_target = torch.norm(target_pos_cur - robot_pos, dim=-1)  # (N,)
         reach_threshold = self.cfg.ranges.waypoint_reach_threshold
         reached = dis_to_target < reach_threshold
@@ -353,7 +377,7 @@ class PathCommand(CommandTerm):
         if torch.any(goal_reached):
             obs_slices[goal_reached] = 0.0
         self.obs_slices = obs_slices
-        
+        self.heading_path_b_cur = self.obs_slices[:,0,3].unsqueeze(-1)
 
 
 

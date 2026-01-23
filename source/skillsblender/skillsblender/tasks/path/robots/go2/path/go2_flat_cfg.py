@@ -18,11 +18,8 @@ class Go2PathEnvCfg(PathEnvCfg):
         self.observations.policy.base_ang_vel.scale = 0.2
         self.observations.policy.joint_pos.scale = 1.0
         self.observations.policy.joint_vel.scale = 0.05
-
         self.actions.joint_pos_actoion.scale = 0.2
-        self.rewards.torques.weight = -0.0005
-        self.rewards.action_rate.weight = -0.05
-        self.rewards.joint_dev.weight = -0.2
+  
         # joint的关节尺度 关节限位
         
         #版本1
@@ -73,17 +70,78 @@ class Go2VelRewardCfg(RewardsCfg):
         weight=1.0,  #根据训练效果调整，先给 1.0 - 2.0
         params={"std": 0.5, "command_name": "path_tracking"}
     )
-    
+
+#带速度的
 @configclass
 class Go2PathFlatCfg(Go2PathEnvCfg):
+    foot_link_name = ".*_foot"
     def __post_init__(self):
         super().__post_init__()
         self.rewards: RewardsCfg = Go2VelRewardCfg()
         self.rewards.track_xy.weight = 8.0
         self.rewards.track_yaw.weight = 0.8
         self.rewards.track_velocity_along_path_exp.weight = 2.0
-        self.rewards.action_rate.weight = -0.005
+        self.rewards.feet_air_time.weight = 0.0 # 禁用feet air time
+        # self.rewards.hip_angle_penalty
+        
         self.commands.path_tracking.resampling_time_range = (8.0, 12.0)
+
+ # ------------------------------Rewards------------------------------
+ # 哪个奖励的维度不正确？
+ 
+        # General
+        self.rewards.is_terminated.weight = -400.0
+        self.rewards.joint_deviation.weight = -0.25
+        
+        # Base
+        # self.rewards.base_height.weight = -10.0
+        self.rewards.flat_orientation.weight = -0.5
+        self.rewards.base_lin_vel_z.weight = -0.7
+        self.rewards.base_ang_vel_xy.weight = -0.05
+        self.rewards.base_acc.weight = -5e-4
+
+        # Joint penalties
+        self.rewards.joint_torques_l2.weight = -2e-4
+        self.rewards.joint_vel_l2.weight = -1e-4
+        self.rewards.joint_acc_l2.weight = -2.5e-7
+        self.rewards.joint_pos_limits.weight = -10.0
+        self.rewards.joint_vel_limits.weight = -1.0
+        self.rewards.joint_mirror.weight = -0.5
+        self.rewards.joint_mirror.params["mirror_joints"] = [
+            ["FR_(hip|thigh|calf).*", "RL_(hip|thigh|calf).*"],
+            ["FL_(hip|thigh|calf).*", "RR_(hip|thigh|calf).*"],
+        ]
+        
+        # Action penalties
+        self.rewards.applied_torque_limits.weight = -0.2
+        self.rewards.action_rate_l2.weight = -2e-5
+
+        # Contact sensor
+        self.rewards.undesired_contacts.weight = -2.0
+        self.rewards.undesired_contacts.params["sensor_cfg"].body_names = [".*_hip", ".*_thigh", ".*_calf"]
+        self.rewards.undesired_contacts.params["threshold"] = 1.0
+
+        # Others
+        self.rewards.air_time_variance.weight = -4.0
+        self.rewards.feet_acc.weight = -2e-6
+        self.rewards.feet_acc.params["asset_cfg"].body_names = [self.foot_link_name]
+        self.rewards.feet_slide.weight = -2.0
+        self.rewards.feet_slide.params["sensor_cfg"].body_names = [self.foot_link_name]
+        self.rewards.feet_slide.params["asset_cfg"].body_names = [self.foot_link_name]
+        self.rewards.feet_gait.weight = 4.0 # Increased to strongly encourage trotting and prevent tripod gait
+        self.rewards.feet_gait.params["synced_feet_pair_names"] = (("FL_foot", "RR_foot"), ("FR_foot", "RL_foot"))
+        self.rewards.feet_height.weight = -5.0
+        self.rewards.feet_height.params["asset_cfg"].body_names = [self.foot_link_name]
+        self.rewards.feet_height.params["target_height"] = -0.22
+        self.rewards.feet_height.params["dis_threshold"] = 0.25
+        self.rewards.feet_height.params["heading_threshold"] = 0.5
+        self.rewards.feet_air_time.weight = 1.0
+        self.rewards.feet_air_time.params["threshold"] = 0.5
+        self.rewards.feet_air_time.params["dis_threshold"] = 0.25
+        self.rewards.feet_air_time.params["heading_threshold"] = 0.5
+        self.rewards.feet_air_time.params["sensor_cfg"].body_names = [self.foot_link_name]
+        self.rewards.feet_stumble.weight = -2.0
+        
 
 
         

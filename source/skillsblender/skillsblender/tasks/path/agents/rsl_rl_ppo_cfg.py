@@ -29,7 +29,7 @@ class PathRslRlPPOCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.01,
         num_learning_epochs=10,
         num_mini_batches=32,
-        learning_rate=3.0e-4,
+        learning_rate=1.0e-3,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,
@@ -103,7 +103,7 @@ class GO2testPathFlatVelPPOWithSymmetryCfg(GO2PathFlatPPOWithSymmetryCfg):
         entropy_coef=0.01,
         num_learning_epochs=5,
         num_mini_batches=16,  #4
-        learning_rate=3.0e-4,
+        learning_rate=1.0e-3,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95, #1.0,
@@ -111,7 +111,7 @@ class GO2testPathFlatVelPPOWithSymmetryCfg(GO2PathFlatPPOWithSymmetryCfg):
         max_grad_norm=1.0,
         symmetry_cfg=RslRlSymmetryCfg(
             use_data_augmentation=True,
-            data_augmentation_func=GO2.compute_symmetric_states#这个函数需要的env obs参数怎么传递进来的？
+            data_augmentation_func=GO2.compute_symmetric_states
         )
     )
 

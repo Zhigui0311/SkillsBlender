@@ -28,6 +28,19 @@ import skillsblender.tasks.path.mdp as mdp
 # ==============================================================================
 # Scene 
 # ==============================================================================
+GO2_BODY_NAMES = ['base', 
+                  'FL_hip', 'FL_thigh','FL_calf', 'FL_foot',
+                  'FR_hip', 'FR_thigh', 'FR_calf', 'FR_foot', 
+                  'Head_upper', 'Head_lower', 
+                  'RL_hip','RL_thigh', 'RL_calf', 'RL_foot', 
+                  'RR_hip','RR_thigh', 'RR_calf', 'RR_foot']
+
+GO2_JOINT_NAMES = [
+    "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+    "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+    "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+    "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"
+]
 
 COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
@@ -81,10 +94,10 @@ class MySceneCfg(InteractiveSceneCfg):
         max_init_terrain_level=1,
         collision_group=-1, 
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            friction_combine_mode="multiply",
-            restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=1.0,
+            friction_combine_mode="average",
+            restitution_combine_mode="average",
+            static_friction=0.5,
+            dynamic_friction=0.5,
         ),
         visual_material=sim_utils.MdlFileCfg(
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
@@ -207,10 +220,9 @@ class EventCfg:
     )
 
 # ==============================================================================
-# Curriculum Learning (课程学习 - 可选，默认禁用)
+# Curriculum Learning
 # ==============================================================================
-# 说明: 课程学习可以帮助机器人从简单任务逐步学习到复杂任务
-# 如果需要启用，请取消注释以下配置，并在 PathEnvCfg 中添加 curriculum 属性
+# 在 PathEnvCfg 中添加 curriculum 属性
 
 # @configclass
 # class CurriculumCfg:
@@ -254,7 +266,7 @@ class CommandsCfg:
             path_type="linear",
             height_change=False,
             end_to_start_pos=(2.5, 6.0, 0), # 终点范围
-            yaw_type="decoupled",       
+            yaw_type="along_path",       
             start_heading=(-math.pi, 0), 
             end_heading=(0, math.pi),   
         ),
@@ -272,7 +284,7 @@ class CommandsCfg:
 class ActionsCfg:
     """Actions specification for the MDP."""
     joint_pos_actoion = mdp.JointPositionActionCfg(
-        asset_name="robot", joint_names=[".*"], scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)}
+        asset_name="robot", joint_names=GO2_JOINT_NAMES, scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)}
     )
 
 
@@ -400,7 +412,11 @@ class ObservationsCfg:
 class RewardsCfg:
     """Reward function configuration."""
 
-    # --- task (基于 path_tracking 指令生成的误差指标) ---
+    # --- General ---
+    is_terminated = RewTerm(func=mdp.is_terminated, weight=0.0)
+    joint_deviation = RewTerm(func=mdp.joint_deviation_l1, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
+    
+    # --- task ---
     track_xy = RewTerm(
         func=mdp.track_path_pos_xy_exp,
         weight=5.0,
@@ -411,33 +427,68 @@ class RewardsCfg:
         weight=2.0,
         params={"std": 0.5, "command_name": "path_tracking"}
     )
-    # track_z = RewTerm(
-    #     func=mdp.track_path_height_exp,
-    #     weight=0.5,
-    #     params={"std": 0.1, "command_name": "path_tracking"}
-    # )
 
-    # --- normalization and penalties ---(防止动作乱动、提升平滑度)
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-1.0)
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
-    torques = RewTerm(func=mdp.joint_torques_l2, weight=-0.0001)
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    #base
+    base_height_l2 = RewTerm(func=mdp.base_height_l2, params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")}, weight=-1.0)
+    flat_orientation = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
+    base_lin_vel_z = RewTerm(func=mdp.lin_vel_z_l2, weight=0.0)
+    base_ang_vel_xy = RewTerm(func=mdp.ang_vel_xy_l2, weight=0.0)
+    base_acc = RewTerm(func=mdp.base_acc, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
+    
+    # Joint penalties
+    joint_torques_l2 = RewTerm(
+        func=mdp.joint_torques_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)}
+    )
+    joint_vel_l2 = RewTerm(
+        func=mdp.joint_vel_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)}
+    )
+    joint_acc_l2 = RewTerm(
+        func=mdp.joint_acc_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)}
+    )
 
-    # 关节姿态正则化：鼓励保持默认站姿
-    joint_dev = RewTerm(func=mdp.joint_deviation_l2, weight=-0.1)
-
-    # 非脚部碰撞惩罚
+    joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)}
+    )
+    joint_vel_limits = RewTerm(
+        func=mdp.joint_vel_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES), "soft_ratio": 1.0},
+    )
+    joint_mirror = RewTerm(
+        func=mdp.joint_mirror,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "mirror_joints": [["FR.*", "RL.*"], ["FL.*", "RR.*"]],
+        },
+    )
+    
+    # Action penalties
+    applied_torque_limits = RewTerm(
+        func=mdp.applied_torque_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=0.0)
+    
+    # Contact sensor
     undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=0.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), #!!!
+            "threshold": 1.0,
+        },
+    )
+    
+    undesired_contacts_hip = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*thigh"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_upper", "Head_lower", "RL_hip", "RR_hip"]),
             "threshold": 1.0
         },
     )
-
-    # 存活奖励
-    alive_rew = RewTerm(func=mdp.is_alive, weight=1.0)
 
     # --- 基础运动质量奖励 ---
     flat_orientation_l2 = RewTerm(
@@ -446,22 +497,8 @@ class RewardsCfg:
         weight=-2.0  # 惩罚机体倾斜
     )
 
-    feet_air_time = RewTerm(
-        func=mdp.feet_air_time,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_calf"), "threshold": 0.5},
-        weight=0.5  # 鼓励合理腾空时间
-    )
 
-    # ========================================================================
-    # 以下是新增奖励 已禁用，请根据需要逐个启用并调试
-    # ========================================================================
 
-    # # 高度保持
-    # base_height_l2 = RewTerm(
-    #     func=mdp.base_height_l2,
-    #     params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")},
-    #     weight=-1.0
-    # )
 
     # # 关节加速度惩罚
     # joint_acc_l2 = RewTerm(
@@ -469,27 +506,6 @@ class RewardsCfg:
     #     params={},
     #     weight=-2.5e-7
     # )
-
-    # 步宽约束 ( 需要调整target_width参数)
-    feet_stride_width_penalty = RewTerm(
-        func=mdp.feet_stride_width_penalty,
-        weight=-1.0,
-        params={
-            "sensor_cfg": SceneEntityCfg(
-                name="contact_forces",
-                body_names=".*_calf"  # 使用calf而不是foot
-            ),
-            "target_width": 0.19,  
-            "tolerance": 0.05,
-        },
-    )
-
-    # 步态对称性 (可能过于严格)
-    gait_symmetry = RewTerm(
-        func=mdp.gait_symmetry_reward,
-        weight=0.5,  # 降低权重
-        params={"asset_cfg": SceneEntityCfg("robot")}
-    )
 
     # # 终点减速
     # near_goal_velocity = RewTerm(
@@ -513,15 +529,80 @@ class RewardsCfg:
     #         }
     # )    
                                                                                                                                                      
-    # 添加hip关节角度约束                                                                                                                                                            
-    hip_angle_penalty = RewTerm(                                                         
-        func=mdp.hip_joint_angle_penalty,                                                
-        weight=-2.0,                                                                     
-        params={                                                                         
-            "asset_cfg": SceneEntityCfg("robot"),                                        
-            "max_hip_angle": 0.15  # 约8.6度                                                                                                                                
-          }                                                                                
-       )     
+    # # 添加hip关节角度约束                                                                                                                                                            
+    # hip_angle_penalty = RewTerm(                                                         
+    #     func=mdp.hip_joint_angle_penalty,                                                
+    #     weight=-2.0,                                                                     
+    #     params={                                                                         
+    #         "asset_cfg": SceneEntityCfg("robot"),                                        
+    #         "max_hip_angle": 0.15  # 约8.6度                                                                                                                                
+    #       }                                                                                
+    #    )
+
+    # feet rewards
+    air_time_variance = RewTerm(
+        func=mdp.air_time_variance_penalty,
+        weight=0.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
+    )
+    feet_acc = RewTerm(
+        func=mdp.feet_acceleration_penalty,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", body_names=".*_foot")},
+    )
+    
+    feet_slide = RewTerm(
+        func=mdp.feet_slide,
+        weight=0.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+        },
+    )
+    
+    feet_gait = RewTerm(
+        func=mdp.GaitReward,
+        weight=0.0,
+        params={
+            "std": math.sqrt(0.5),
+            "command_name": "path_tracking",
+            "max_err": 0.2,
+            "velocity_threshold": 0.5,
+            "command_threshold": 0.1,
+            "synced_feet_pair_names": (("FL_foot", "RR_foot"), ("FR_foot", "RL_foot")),
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sensor_cfg": SceneEntityCfg("contact_forces"),
+        },
+    )
+    
+    feet_height = RewTerm(
+        func=mdp.feet_height_body,
+        weight=0.0,
+        params={
+            "command_name": "path_tracking",
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+            "target_height": -0.2,
+            "dis_threshold": 0.25,
+            "heading_threshold": 0.5,
+        },
+    )
+    feet_air_time = RewTerm(
+        func=mdp.feet_air_time_1,
+        weight=0.0,
+        params={
+            "command_name": "path_tracking",
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "threshold": 0.5,
+            "dis_threshold": 0.25,
+            "heading_threshold": 0.5,
+        },
+    )
+
+    feet_stumble = RewTerm(
+        func=mdp.feet_stumble,
+        weight=0.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
+    )
 
 @configclass
 class TerminationsCfg:

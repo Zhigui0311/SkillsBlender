@@ -21,15 +21,6 @@ gym.register(
     },
 )
 
-gym.register(
-    id="go2-path-flat-symmetry-v0-play",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_flat_cfg:Go2PathEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": f"skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2PathFlatPPOWithSymmetryCfg",
-    },
-)
 
 # gym.register(
 #     id="go2-path-flat-v0",
@@ -62,7 +53,7 @@ gym.register(
 )
 
 gym.register(
-    id="go2-path-flat-vel-sym-v0-test",
+    id="go2-path-flat-vel-sym-test-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
@@ -71,8 +62,28 @@ gym.register(
     },
 )
 
+gym.register(
+    id="go2-path-flat-vel-sym-test-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_flat_cfg:Go2PathFlatEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2testPathFlatVelPPOWithSymmetryCfg",
+    },
+)
+
 # -------flat play---------
 
+
+gym.register(
+    id="go2-path-flat-symmetry-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_flat_cfg:Go2PathEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2PathFlatPPOWithSymmetryCfg",
+    },
+)
 
 gym.register(
     id="go2-path-flat-v0-play",
@@ -93,12 +104,7 @@ gym.register(
     },
 )
 
-
-
-
-
-
-# ----------------------jump
+# ----------------------jump---------------------------------------
 
 gym.register(
     id="go2-path-jump-v0",
