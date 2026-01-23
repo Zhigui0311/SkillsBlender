@@ -305,7 +305,7 @@ def feet_air_time_1(
     heading_error = torch.abs(command.target_heading_b)  # (num_envs,)
     condition = (distance < dis_threshold) & (heading_error < heading_threshold)
     reward = torch.where(condition, 0.0, reward)
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
+    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7 #(num_envs,)
     return reward
 
 class GaitReward(ManagerTermBase):

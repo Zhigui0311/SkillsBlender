@@ -90,24 +90,24 @@ class PathCommand(CommandTerm):
 
     @property
     def robot_pos_w(self) -> torch.Tensor:
-        return self.robot.data.root_pos_w
+        return self.robot.data.root_pos_w # (num_envs, 3)
     
     @property
     def robot_heading_w(self) -> torch.Tensor:
-        return self.robot.data.heading_w
+        return self.robot.data.heading_w.squeeze(-1) # (num_envs,)
     
     @property
     def robot_velocity_w(self) -> torch.Tensor:
-        return self.robot.data.root_lin_vel_w
-    
+        return self.robot.data.root_lin_vel_w # (num_envs, 3)
     #下面这两个量还没有独立的取出来
+    #这两个量还有更新的问题
     @property
     def target_pos_w(self) -> torch.Tensor:
-        return self.pos_path_w_cur
+        return self.pos_path_w_cur # (num_envs, 3)
     
     @property
     def target_heading_b(self) -> torch.Tensor:
-        return self.heading_path_b_cur
+        return self.heading_path_b_cur.squeeze(-1) # (num_envs,)
     
     # @property
     # def start_pos_w(self) -> torch.Tensor:
@@ -328,7 +328,7 @@ class PathCommand(CommandTerm):
         pos_traj, yaw_traj = self._generate_trajectory(env_ids)
         self.pos_path_w[env_ids] = pos_traj
         self.heading_path_w[env_ids] = yaw_traj
-        self.pos_path_w_cur = self.pos_path_w[env_ids, 0, :]
+        self.pos_path_w_cur[env_ids] = self.pos_path_w[env_ids, 0, :]
         self.current_waypoints_index[env_ids] = 0
         self.goal_reached[env_ids] = False
 
