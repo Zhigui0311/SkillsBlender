@@ -339,8 +339,17 @@ class GaitReward(ManagerTermBase):
             or len(synced_feet_pair_names[1]) != 2
         ):
             raise ValueError("This reward only supports gaits with two pairs of synchronized feet, like trotting.")
-        synced_feet_pair_0 = self.contact_sensor.find_bodies(synced_feet_pair_names[0])[0]
-        synced_feet_pair_1 = self.contact_sensor.find_bodies(synced_feet_pair_names[1])[0]
+        # synced_feet_pair_0 = self.contact_sensor.find_bodies(synced_feet_pair_names[0])[0]
+        # synced_feet_pair_1 = self.contact_sensor.find_bodies(synced_feet_pair_names[1])[0]
+        body_ids_0, _ = self.contact_sensor.find_bodies(synced_feet_pair_names[0], preserve_order=True)
+        body_ids_1, _ = self.contact_sensor.find_bodies(synced_feet_pair_names[1], preserve_order=True)
+        if len(body_ids_0) != 2 or len(body_ids_1) != 2:
+            raise ValueError(
+                "Each synced feet pair must resolve to exactly two bodies. "
+                f"Got: {body_ids_0} and {body_ids_1}."
+            )
+        synced_feet_pair_0 = [int(body_ids_0[0]), int(body_ids_0[1])]
+        synced_feet_pair_1 = [int(body_ids_1[0]), int(body_ids_1[1])]
         self.synced_feet_pairs = [synced_feet_pair_0, synced_feet_pair_1]
 # class GaitReward(ManagerTermBase):
 #     """Gait enforcing reward term for quadrupeds."""

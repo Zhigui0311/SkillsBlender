@@ -81,7 +81,6 @@ class Go2PathFlatCfg(Go2PathEnvCfg):
         self.rewards.track_xy.weight = 8.0
         self.rewards.track_yaw.weight = 0.8
         self.rewards.track_velocity_along_path_exp.weight = 2.0
-        self.rewards.feet_air_time.weight = 0.0 # 禁用feet air time
         # self.rewards.hip_angle_penalty
         
         self.commands.path_tracking.resampling_time_range = (8.0, 12.0)
