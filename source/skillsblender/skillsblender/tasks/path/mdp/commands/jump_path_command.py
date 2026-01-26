@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 import isaaclab.sim as sim_utils
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+import isaaclab.utils.math as math_utils
 
 class JumpPathCommand(PathCommand):
     """Command that senses terrain to generate parabolic jump trajectories."""
@@ -31,6 +32,8 @@ class JumpPathCommand(PathCommand):
         """
         # Call parent class initialization
         super().__init__(cfg, env)
+
+        self.height_scanner = env.scene.sensors.get("height_scanner")
 
         # Get terrain configuration and recreate TerrainGenerator to access mesh
         terrain_importer: TerrainImporter = env.scene.terrain
@@ -74,57 +77,95 @@ class JumpPathCommand(PathCommand):
         base_h = start_pos[:, 2]
         steps = int(self.cfg.jump_params.scan_dist / self.cfg.jump_params.scan_step)
 
-        for i in range(steps):
-            d = i * self.cfg.jump_params.scan_step
-            check_xy = start_pos[:, :2].clone()
-            check_xy[:, 0] += d  # Scan forward along X-axis
+        if self.height_scanner is not None:
+            ray_hits_w = self.height_scanner.data.ray_hits_w[env_ids]
+            robot_pos_w = start_pos[:, :3]
+            robot_quat_w = self.robot.data.root_quat_w[env_ids]
+            rel_hits = ray_hits_w - robot_pos_w.unsqueeze(1)
+            rel_hits_flat = rel_hits.reshape(-1, 3)
+            quat_flat = robot_quat_w.repeat_interleave(rel_hits.shape[1], dim=0)
+            rel_hits_b = math_utils.quat_apply_inverse(quat_flat, rel_hits_flat).reshape(rel_hits.shape)
+            rel_x = rel_hits_b[..., 0]
+            rel_y = rel_hits_b[..., 1]
+            rel_z = ray_hits_w[..., 2]
 
-            # Clamp to env bounds
-            if xy_min is not None:
-                check_xy = torch.max(torch.min(check_xy, xy_max), xy_min)
-
-            # Query terrain height at this position using warp raycast
-            # Create rays starting from high above (100m) and pointing downward
-            ray_starts = torch.cat([
-                check_xy,  # XY position
-                torch.ones(num_batch, 1, device=self.device) * 100.0  # Z = 100m above
-            ], dim=-1)  # Shape: (num_batch, 3)
-
-            # Ray direction: straight down (0, 0, -1)
-            ray_directions = torch.tensor(
-                [[0.0, 0.0, -1.0]],
-                device=self.device
-            ).expand(num_batch, -1)  # Shape: (num_batch, 3)
-
-            # Perform raycast to find ground height
-            ray_hits, _, _, _ = warp_utils.raycast_mesh(
-                ray_starts=ray_starts,
-                ray_directions=ray_directions,
-                mesh=self.warp_mesh,
-                max_dist=200.0  # Max raycast distance (100m down)
+            valid_mask = (
+                (rel_x >= 0.0)
+                & (rel_x <= self.cfg.jump_params.scan_dist)
+                & (torch.abs(rel_y) < 0.05)
             )
 
-            # Extract Z coordinate as terrain height
-            # If ray misses (returns inf), use base height as fallback
-            h = torch.where(
-                torch.isinf(ray_hits[:, 2]),
-                base_h,  # Fallback to base height if raycast misses
-                ray_hits[:, 2]  # Use raycast Z coordinate
-            )
+            for env_i in range(num_batch):
+                mask = valid_mask[env_i]
+                if not mask.any():
+                    continue
+                x_vals = rel_x[env_i, mask]
+                h_vals = rel_z[env_i, mask]
+                order = torch.argsort(x_vals)
+                x_vals = x_vals[order]
+                h_vals = h_vals[order]
+                is_gap = (h_vals - base_h[env_i]) < self.cfg.jump_params.gap_threshold
+                if not is_gap.any():
+                    continue
+                first_gap_idx = torch.nonzero(is_gap, as_tuple=False)[0, 0]
+                gap_start_dist[env_i] = x_vals[first_gap_idx] - self.cfg.jump_params.takeoff_margin
+                has_gap[env_i] = True
+                end_candidates = torch.nonzero(~is_gap & (x_vals > x_vals[first_gap_idx]), as_tuple=False)
+                if end_candidates.numel() > 0:
+                    end_idx = end_candidates[0, 0]
+                    gap_end_dist[env_i] = x_vals[end_idx] + self.cfg.jump_params.landing_margin
+        else:
+            for i in range(steps):
+                d = i * self.cfg.jump_params.scan_step
+                check_xy = start_pos[:, :2].clone()
+                check_xy[:, 0] += d  # Scan forward along X-axis
 
-            # Detect gap start (height drops)
-            is_gap = (h - base_h) < self.cfg.jump_params.gap_threshold
+                # Clamp to env bounds
+                if xy_min is not None:
+                    check_xy = torch.max(torch.min(check_xy, xy_max), xy_min)
 
-            # Mark gap start
-            start_mask = is_gap & (~has_gap)
-            if start_mask.any():
-                gap_start_dist[start_mask] = d - self.cfg.jump_params.takeoff_margin
-                has_gap |= start_mask
+                # Query terrain height at this position using warp raycast
+                # Create rays starting from high above (100m) and pointing downward
+                ray_starts = torch.cat([
+                    check_xy,  # XY position
+                    torch.ones(num_batch, 1, device=self.device) * 100.0  # Z = 100m above
+                ], dim=-1)  # Shape: (num_batch, 3)
 
-            # Mark gap end (height recovers)
-            end_mask = (~is_gap) & has_gap & (gap_end_dist == 0)
-            if end_mask.any():
-                gap_end_dist[end_mask] = d + self.cfg.jump_params.landing_margin
+                # Ray direction: straight down (0, 0, -1)
+                ray_directions = torch.tensor(
+                    [[0.0, 0.0, -1.0]],
+                    device=self.device
+                ).expand(num_batch, -1)  # Shape: (num_batch, 3)
+
+                # Perform raycast to find ground height
+                ray_hits, _, _, _ = warp_utils.raycast_mesh(
+                    ray_starts=ray_starts,
+                    ray_directions=ray_directions,
+                    mesh=self.warp_mesh,
+                    max_dist=200.0  # Max raycast distance (100m down)
+                )
+
+                # Extract Z coordinate as terrain height
+                # If ray misses (returns inf), use base height as fallback
+                h = torch.where(
+                    torch.isinf(ray_hits[:, 2]),
+                    base_h,  # Fallback to base height if raycast misses
+                    ray_hits[:, 2]  # Use raycast Z coordinate
+                )
+
+                # Detect gap start (height drops)
+                is_gap = (h - base_h) < self.cfg.jump_params.gap_threshold
+
+                # Mark gap start
+                start_mask = is_gap & (~has_gap)
+                if start_mask.any():
+                    gap_start_dist[start_mask] = d - self.cfg.jump_params.takeoff_margin
+                    has_gap |= start_mask
+
+                # Mark gap end (height recovers)
+                end_mask = (~is_gap) & has_gap & (gap_end_dist == 0)
+                if end_mask.any():
+                    gap_end_dist[end_mask] = d + self.cfg.jump_params.landing_margin
 
         # 2. Plan 3D Path
         # Total distance: extend a bit beyond gap end if gap exists, otherwise use default length

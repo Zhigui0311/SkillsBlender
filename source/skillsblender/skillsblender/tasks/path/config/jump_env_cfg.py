@@ -96,14 +96,14 @@ class MyJumpSceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = MISSING
 
     #sensors
-    # height_scanner = RayCasterCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/base",
-    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-    #     ray_alignment="yaw",
-    #     pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[3.0, 1.0]),
-    #     debug_vis=True,
-    #     mesh_prim_paths=["/World/ground"],
-    # )
+    height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[6.0, 1.0]),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
 
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*", 
