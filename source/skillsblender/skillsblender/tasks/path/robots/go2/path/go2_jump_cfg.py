@@ -24,9 +24,9 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         self.actions.joint_pos_actoion.scale = 0.2
 
         # 基础奖励权重调整
-        self.rewards.torques.weight = -0.0005
-        self.rewards.action_rate.weight = -0.05
-        self.rewards.joint_dev.weight = -0.2
+        self.rewards.torques.weight = -0.0002
+        self.rewards.action_rate.weight = -0.02
+        self.rewards.joint_dev.weight = -0.1
 
         # 命令参数调整
         self.commands.path_tracking.ranges.num_waypoints = 100
@@ -36,13 +36,13 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         # 跳跃专用奖励权重调整（根据训练效果微调）
         # ========================================================================
         # 增加跳跃高度追踪的重要性
-        self.rewards.jump_height_tracking.weight = 4.0  # 默认3.0 → 4.0
+        self.rewards.jump_height_tracking.weight = 3.5  # 默认3.0 → 3.5
 
         # 增加落地稳定性的重要性
         self.rewards.jump_landing_stability.weight = 2.5  # 默认2.0 → 2.5
 
-        # 适度降低前向速度要求（避免过快导致失控）
-        self.rewards.jump_forward_velocity.weight = 1.5  # 默认2.0 → 1.5
+        # 提高前向速度要求，防止原地踏步
+        self.rewards.jump_forward_velocity.weight = 2.5  # 默认2.0 → 2.5
 
 
 @configclass

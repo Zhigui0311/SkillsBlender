@@ -42,18 +42,18 @@ JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     border_width = 0.5,
     sub_terrains={
         # 1. 基础平地
-        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.1), #但是我的训练的逻辑是规划路径然后训练
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.05), # 降低平地占比，增加跳跃地形比例
         
         # 2. 窄沟壑
         "narrow_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.6,
+            proportion=0.5,
             gap_width_range=(0.3, 0.5),               
             platform_width=2.0,           
         ),
         
         # 3. 宽沟壑：用于进阶跳跃训练 (占比 40%)
         "wide_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.3,
+            proportion=0.45,
             gap_width_range=(0.6, 1.0),  # 沟壑宽度 0.6m - 1.0m (挑战 Go2 极限)
             platform_width=2.5,
         ),
@@ -77,7 +77,7 @@ class MyJumpSceneCfg(InteractiveSceneCfg):
         prim_path="/World/ground",
         terrain_type="generator", 
         terrain_generator=JUMP_TERRAIN_CFG,
-        max_init_terrain_level=1,
+        max_init_terrain_level=None,
         collision_group=-1, 
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -371,6 +371,11 @@ class RewardsCfg:
         func=mdp.track_path_heading_exp,
         weight=2.0,
         params={"std": 0.5, "command_name": "path_tracking"}
+    )
+    track_velocity = RewTerm(
+        func=mdp.track_velocity_along_path_exp,
+        weight=3.0,
+        params={"std": 0.6, "command_name": "path_tracking"}
     )
 
     # --- Jump-specific rewards (跳跃专用奖励) ---
