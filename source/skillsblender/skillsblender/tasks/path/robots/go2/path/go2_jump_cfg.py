@@ -58,7 +58,7 @@ class Go2JumpEnvCfg_PLAY(Go2JumpEnvCfg):
         self.episode_length_s = 15.0  # 跳跃任务需要更长时间
 
         # 场景配置（少环境，便于观察）
-        self.scene.num_envs = 8
+        self.scene.num_envs = 12
         self.scene.env_spacing = 10.0  # 跳跃需要更大空间
 
         self.sim.render_interval = 2

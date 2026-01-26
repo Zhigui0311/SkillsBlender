@@ -33,7 +33,7 @@ JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
     num_rows=10,
     num_cols=20,
-    curriculum= True,
+    curriculum=False,
     difficulty_range=(0.0,1.0),
     horizontal_scale=0.1,
     vertical_scale=0.005,
@@ -42,7 +42,7 @@ JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     border_width = 0.5,
     sub_terrains={
         # 1. 基础平地
-        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.05), # 降低平地占比，增加跳跃地形比例
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.0), # 禁用平地，全部使用gap地形
         
         # 2. 窄沟壑
         "narrow_gaps": terrain_gen.MeshGapTerrainCfg(
@@ -53,7 +53,7 @@ JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
         
         # 3. 宽沟壑：用于进阶跳跃训练 (占比 40%)
         "wide_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.45,
+            proportion=0.5,
             gap_width_range=(0.6, 1.0),  # 沟壑宽度 0.6m - 1.0m (挑战 Go2 极限)
             platform_width=2.5,
         ),
