@@ -31,8 +31,8 @@ import skillsblender.tasks.path.mdp as mdp
 # ==============================================================================
 JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
-    num_rows=10,
-    num_cols=20,
+    num_rows=16,
+    num_cols=24,
     curriculum=False,
     difficulty_range=(0.0,1.0),
     horizontal_scale=0.1,
