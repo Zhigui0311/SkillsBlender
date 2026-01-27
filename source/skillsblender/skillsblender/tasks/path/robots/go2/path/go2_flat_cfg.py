@@ -80,7 +80,7 @@ class Go2PathFlatCfg(Go2PathEnvCfg):
         self.rewards: RewardsCfg = Go2VelRewardCfg()
         self.rewards.track_xy.weight = 8.0
         self.rewards.track_yaw.weight = 0.8
-        self.rewards.track_velocity_along_path_exp.weight = 2.0
+        self.rewards.track_velocity_along_path_exp.weight = 4.0
         # self.rewards.hip_angle_penalty
         
         self.commands.path_tracking.resampling_time_range = (8.0, 12.0)
@@ -127,7 +127,7 @@ class Go2PathFlatCfg(Go2PathEnvCfg):
         self.rewards.feet_slide.weight = -2.0
         self.rewards.feet_slide.params["sensor_cfg"].body_names = [self.foot_link_name]
         self.rewards.feet_slide.params["asset_cfg"].body_names = [self.foot_link_name]
-        self.rewards.feet_gait.weight = 4.0 # Increased to strongly encourage trotting and prevent tripod gait
+        self.rewards.feet_gait.weight = 2.0 # Increased to strongly encourage trotting and prevent tripod gait
         self.rewards.feet_gait.params["synced_feet_pair_names"] = (("FL_foot", "RR_foot"), ("FR_foot", "RL_foot"))
         self.rewards.feet_height.weight = -5.0
         self.rewards.feet_height.params["asset_cfg"].body_names = [self.foot_link_name]
@@ -140,7 +140,7 @@ class Go2PathFlatCfg(Go2PathEnvCfg):
         self.rewards.feet_air_time.params["heading_threshold"] = 0.5
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = [self.foot_link_name]
         self.rewards.feet_stumble.weight = -2.0
-        
+        self.rewards.stalling_penalty.weight = -1.0
 
 
         

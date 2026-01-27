@@ -110,13 +110,10 @@ def jump_forward_velocity(
     鼓励机器人在跳跃时保持足够的前向速度。
     """
     asset: Articulation = env.scene[asset_cfg.name]
-
     # 获取机器人在body坐标系下的线速度
     vel_b = asset.data.root_lin_vel_b[:, :3]
-
     # 前向速度 (X轴)
     forward_vel = vel_b[:, 0]
-
     # 使用指数核奖励接近目标速度
     reward = torch.exp(-torch.square(forward_vel - target_velocity) / (std ** 2))
 

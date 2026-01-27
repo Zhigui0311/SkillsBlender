@@ -29,11 +29,25 @@ import skillsblender.tasks.path.mdp as mdp
 # ==============================================================================
 # Scene 
 # ==============================================================================
+GO2_BODY_NAMES = ['base', 
+                  'FL_hip', 'FL_thigh','FL_calf', 'FL_foot',
+                  'FR_hip', 'FR_thigh', 'FR_calf', 'FR_foot', 
+                  'Head_upper', 'Head_lower', 
+                  'RL_hip','RL_thigh', 'RL_calf', 'RL_foot', 
+                  'RR_hip','RR_thigh', 'RR_calf', 'RR_foot']
+
+GO2_JOINT_NAMES = [
+    "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+    "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+    "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+    "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"
+]
+
 JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
-    num_rows=10,
-    num_cols=20,
-    curriculum= True,
+    num_rows=16,
+    num_cols=24,
+    curriculum= False,
     difficulty_range=(0.0,1.0),
     horizontal_scale=0.1,
     vertical_scale=0.005,
@@ -42,31 +56,24 @@ JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     border_width = 0.5,
     sub_terrains={
         # 1. 基础平地
-        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.1), #但是我的训练的逻辑是规划路径然后训练
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.00), #但是我的训练的逻辑是规划路径然后训练
         
         # 2. 窄沟壑
         "narrow_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.6,
+            proportion=0.65,
             gap_width_range=(0.3, 0.5),               
             platform_width=2.0,           
         ),
         
         # 3. 宽沟壑：用于进阶跳跃训练 (占比 40%)
         "wide_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.3,
+            proportion=0.4,
             gap_width_range=(0.6, 1.0),  # 沟壑宽度 0.6m - 1.0m (挑战 Go2 极限)
             platform_width=2.5,
         ),
     },
 )
 
-
-GO2_JOINT_NAMES = [
-    "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
-    "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
-    "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
-    "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"
-]
 
 @configclass
 class MyJumpSceneCfg(InteractiveSceneCfg):
@@ -77,7 +84,7 @@ class MyJumpSceneCfg(InteractiveSceneCfg):
         prim_path="/World/ground",
         terrain_type="generator", 
         terrain_generator=JUMP_TERRAIN_CFG,
-        max_init_terrain_level=1,
+        max_init_terrain_level=None,  #！1
         collision_group=-1, 
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -96,15 +103,16 @@ class MyJumpSceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = MISSING
 
     #sensors
-    # height_scanner = RayCasterCfg(
-    #     prim_path="{ENV_REGEX_NS}/Robot/base",
-    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-    #     ray_alignment="yaw",
-    #     pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[3.0, 1.0]),
-    #     debug_vis=True,
-    #     mesh_prim_paths=["/World/ground"],
-    # )
-
+    height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[6.0, 1.0]),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
+    #！2是不是可以考虑加上其他的scanner 帮助奖励塑形的特权信息
+    
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*", 
         history_length=3, 
@@ -276,14 +284,14 @@ class ObservationsCfg:
         # ---  Robot Joint States ---
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES , preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
         
         joint_vel = ObsTerm(
             func=mdp.joint_vel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
@@ -329,14 +337,14 @@ class ObservationsCfg:
     
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
         
         joint_vel = ObsTerm(
             func=mdp.joint_vel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
@@ -347,7 +355,6 @@ class ObservationsCfg:
             scale=1.0,
         )
         #可以考虑加上last last
-        #height_scanner  加不加这个功能？
 
         def __post_init__(self):
             self.enable_corruption = False
@@ -361,7 +368,11 @@ class ObservationsCfg:
 class RewardsCfg:
     """Reward function configuration for jump training."""
 
-    # --- Task rewards (基础路径追踪) ---
+    # --- General ---
+    is_terminated = RewTerm(func=mdp.is_terminated, weight=0.0)
+    joint_deviation = RewTerm(func=mdp.joint_deviation_l1, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
+    
+    # --- Task  ---
     track_xy = RewTerm(
         func=mdp.track_path_pos_xy_exp,
         weight=5.0,
@@ -373,6 +384,19 @@ class RewardsCfg:
         params={"std": 0.5, "command_name": "path_tracking"}
     )
 
+    stalling_penalty = RewTerm(
+        func=mdp.stalling_penalty,
+        weight=0,
+        params={"command_name": "path_tracking" }
+    )
+    
+    track_velocity = RewTerm(
+        func=mdp.track_velocity_along_path_exp,
+        weight=3.0,
+        params={"std": 0.6, "command_name": "path_tracking"}
+    )
+    
+    
     # --- Jump-specific rewards (跳跃专用奖励) ---
     # 跳跃高度追踪：鼓励机器人跟随抛物线轨迹
     jump_height_tracking = RewTerm(
@@ -398,7 +422,7 @@ class RewardsCfg:
     # 跳跃离地高度：鼓励跳得足够高，避免碰到沟壑边缘
     jump_clearance = RewTerm(
         func=mdp.jump_clearance_reward,
-        weight=1.5,
+        weight=2.0,
         params={
             "min_clearance": 0.2,
             "asset_cfg": SceneEntityCfg("robot"),
@@ -438,27 +462,68 @@ class RewardsCfg:
         }
     )
 
-    # --- Regularization (正则化 - 防止动作乱动) ---
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-1.0)
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
-    torques = RewTerm(func=mdp.joint_torques_l2, weight=-0.0001)
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    #base
+    base_height_l2 = RewTerm(func=mdp.base_height_l2, params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")}, weight=-1.0)
+    flat_orientation = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
+    base_lin_vel_z = RewTerm(func=mdp.lin_vel_z_l2, weight=0.0)
+    base_ang_vel_xy = RewTerm(func=mdp.ang_vel_xy_l2, weight=0.0)
+    base_acc = RewTerm(func=mdp.base_acc, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
+    
+    # Joint penalties
+    joint_torques_l2 = RewTerm(
+        func=mdp.joint_torques_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)}
+    )
+    
+    joint_vel_l2 = RewTerm(
+        func=mdp.joint_vel_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)}
+    )
+    joint_acc_l2 = RewTerm(
+        func=mdp.joint_acc_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)}
+    )
 
-    # 关节姿态正则化：鼓励保持默认站姿
-    joint_dev = RewTerm(func=mdp.joint_deviation_l2, weight=-0.1)
+    joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)}
+    )
+    joint_vel_limits = RewTerm(
+        func=mdp.joint_vel_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES), "soft_ratio": 1.0},
+    )
+    joint_mirror = RewTerm(
+        func=mdp.joint_mirror,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "mirror_joints": [["FR.*", "RL.*"], ["FL.*", "RR.*"]],
+        },
+    )
+    
+    # Action penalties
+    applied_torque_limits = RewTerm(
+        func=mdp.applied_torque_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=0.0)
+    
 
-    # 非脚部碰撞惩罚
+   # Contact sensor
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-1.0,
+        weight=0.0,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*thigh"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), #!!!
+            "threshold": 1.0,
+        },
+    )
+    undesired_contacts_hip = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=0, #-1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_upper", "Head_lower", "RL_hip", "RR_hip"]),
             "threshold": 1.0
         },
     )
-
-    # 存活奖励
-    alive_rew = RewTerm(func=mdp.is_alive, weight=1.0)
 
 
 
@@ -537,7 +602,14 @@ class TerminationsCfg:
         }
     )
 
-# ==================================================== 帮我看看go2_jump_cfg.py还需要改吗
+    # === 新增姿态终止 ===  termination
+    bad_orientation = DoneTerm(
+        func=mdp.bad_orientation,
+        params={"limit_angle": 0.5},  # 约 30 度
+        time_out=False
+    )
+
+# ==================================================== 
 # @configclass
 # class JumpCurriculumCfg:
 #     """Jump-specific curriculum learning configuration."""
@@ -630,3 +702,11 @@ class JumpPathEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.origin_type = "asset"
         self.viewer.eye = (3.0, 3.0, 3.0)
         self.viewer.lookat = (0.0, 0.0, 0.0)
+        
+    def disable_zero_weight_rewards(self):
+        """If the weight of rewards is 0, set rewards to None"""
+        for attr in dir(self.rewards):
+            if not attr.startswith("__"):
+                reward_attr = getattr(self.rewards, attr)
+                if not callable(reward_attr) and reward_attr.weight == 0:
+                    setattr(self.rewards, attr, None)

@@ -631,26 +631,26 @@ def track_velocity_along_path_exp(
     reward = torch.where(valid_mask, reward, torch.zeros_like(reward))
     return reward
 
-# def stalling_penalty(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
-#     """Compute the stalling penalty based on the robot's velocity.
+def stalling_penalty(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
+    """Compute the stalling penalty based on the robot's velocity.
 
-#     Args:
-#         env (ManagerBasedRLEnv): The environment instance.
-#         command_name (str): The name of the command to retrieve target positions.
+    Args:
+        env (ManagerBasedRLEnv): The environment instance.
+        command_name (str): The name of the command to retrieve target positions.
 
-#     Returns:
-#         torch.Tensor: The computed penalty tensor of shape (num_envs,).
-#     """
-#     command: PathCommand = env.command_manager.get_term(command_name)
-#     speed = torch.norm(command.robot_velocity_w, dim=-1)  # (num_envs,)
-#     distance = torch.norm(command.robot_pos_w - command.target_pos_w, dim=-1)  # (num_envs,)
+    Returns:
+        torch.Tensor: The computed penalty tensor of shape (num_envs,).
+    """
+    command: PathCommand = env.command_manager.get_term(command_name)
+    speed = torch.norm(command.robot_velocity_w, dim=-1)  # (num_envs,)
+    distance = torch.norm(command.robot_pos_w - command.target_pos_w, dim=-1)  # (num_envs,)
 
-#     # Condition for when to apply the reward
-#     condition = (speed < 0.2) & (distance > 0.3)
+    # Condition for when to apply the reward
+    condition = (speed < 0.2) & (distance > 0.3)
     
-#     # Calculate reward using torch.where for vectorized operation
-#     reward = torch.where(condition, 1.0, 0.0)
-#     return reward
+    # Calculate reward using torch.where for vectorized operation
+    reward = torch.where(condition, 1.0, 0.0)
+    return reward
 
 def track_path_pos_xy_exp(
     env: ManagerBasedRLEnv, 

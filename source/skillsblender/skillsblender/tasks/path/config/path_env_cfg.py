@@ -94,10 +94,11 @@ class MySceneCfg(InteractiveSceneCfg):
         max_init_terrain_level=1,
         collision_group=-1, 
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            friction_combine_mode="average",
-            restitution_combine_mode="average",
-            static_friction=0.5,
-            dynamic_friction=0.5,
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+            restitution=1.0,
         ),
         visual_material=sim_utils.MdlFileCfg(
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
@@ -428,6 +429,12 @@ class RewardsCfg:
         params={"std": 0.5, "command_name": "path_tracking"}
     )
 
+    stalling_penalty = RewTerm(
+        func=mdp.stalling_penalty,
+        weight=0,
+        params={"command_name": "path_tracking" }
+    )
+    
     #base
     base_height_l2 = RewTerm(func=mdp.base_height_l2, params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")}, weight=-1.0)
     flat_orientation = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
@@ -496,9 +503,6 @@ class RewardsCfg:
         params={},
         weight=-2.0  # 惩罚机体倾斜
     )
-
-
-
 
     # # 关节加速度惩罚
     # joint_acc_l2 = RewTerm(
