@@ -681,3 +681,11 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.origin_type = "asset"
         self.viewer.eye = (3.0, 3.0, 3.0)
         self.viewer.lookat = (0.0, 0.0, 0.0)
+        
+    def disable_zero_weight_rewards(self):
+        """If the weight of rewards is 0, set rewards to None"""
+        for attr in dir(self.rewards):
+            if not attr.startswith("__"):
+                reward_attr = getattr(self.rewards, attr)
+                if not callable(reward_attr) and reward_attr.weight == 0:
+                    setattr(self.rewards, attr, None)

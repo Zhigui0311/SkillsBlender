@@ -90,7 +90,7 @@ def curriculum_velocity_requirement(
         # 实际实现取决于奖励函数的设计
 
 
-def curriculum_terrain_difficulty(
+def curriculum_terrain_diffiƒculty(
     env: ManagerBasedRLEnv,
     reward_threshold: float,
     max_difficulty: int = 5,
@@ -120,6 +120,9 @@ def curriculum_terrain_difficulty(
                 new_max = min(current_max + 0.1, 1.0)
                 terrain.cfg.difficulty_range = (0.0, new_max)
                 print(f"[Curriculum] Terrain difficulty updated: {new_max:.2f}")
+
+
+
 
 # ==============================================================================
 # Jump-Specific Curriculum (跳跃专用课程学习)

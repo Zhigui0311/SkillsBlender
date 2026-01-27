@@ -110,7 +110,16 @@ gym.register(
     id="go2-path-jump-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_jump_cfg:Go2JumpEnvCfg", # Ensure this uses JumpPathCommandCfg
+        "env_cfg_entry_point": f"{__name__}.go2_jump_cfg:Go2JumpEnvCfg", 
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-jump-curriculum-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_jump_cur_cfg:Go2JumpCurEnvCfg", 
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
     },
 )
@@ -120,6 +129,15 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     kwargs={
         "env_cfg_entry_point": f"{__name__}.go2_jump_cfg:Go2JumpEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-jump-curriculum-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_jump_cur_cfg:Go2JumpCurEnvCfg_PLAY", # Ensure this uses JumpPathCommandCfg
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
     },
 )

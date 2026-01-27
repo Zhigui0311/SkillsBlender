@@ -609,60 +609,8 @@ class TerminationsCfg:
         time_out=False
     )
 
-# ==================================================== 
-# @configclass
-# class JumpCurriculumCfg:
-#     """Jump-specific curriculum learning configuration."""
-#
-#     # 沟壑宽度课程: 从窄沟壑逐步增加到宽沟壑
-#     jump_gap_width = CurrTerm(
-#         func=mdp.curriculum_jump_gap_width,
-#         params={
-#             "reward_threshold": 50.0,           # 平均奖励超过此值时增加难度
-#             "initial_gap_range": (0.3, 0.5),   # 初始沟壑宽度范围
-#             "final_gap_range": (0.6, 1.0),     # 最终沟壑宽度范围
-#             "step_size": 0.1                    # 每次增加步长
-#         }
-#     )
-#
-#     # 跳跃高度要求课程: 逐步提高跳跃高度
-#     jump_height_requirement = CurrTerm(
-#         func=mdp.curriculum_jump_height_requirement,
-#         params={
-#             "command_name": "path_tracking",
-#             "reward_threshold": 60.0,
-#             "initial_height": 0.25,            # 初始跳跃高度
-#             "final_height": 0.45,              # 最终跳跃高度
-#             "step_size": 0.05
-#         }
-#     )
-#
-#     # 地形混合课程: 逐步增加跳跃地形比例
-#     jump_terrain_mix = CurrTerm(
-#         func=mdp.curriculum_jump_terrain_mix,
-#         params={
-#             "reward_threshold": 55.0,
-#             "max_jump_proportion": 0.9         # 跳跃地形的最大比例
-#         }
-#     )
-#
-#     # 速度要求课程: 逐步提高跳跃时的速度要求 (可选)
-#     # jump_speed_requirement = CurrTerm(
-#     #     func=mdp.curriculum_jump_speed_requirement,
-#     #     params={
-#     #         "reward_threshold": 65.0,
-#     #         "initial_speed": 1.0,
-#     #         "final_speed": 2.0,
-#     #         "step_size": 0.1
-#     #     }
-#     # )
-
-
-
 
 # -- Environment Configuration 
-
-
 @configclass
 class JumpPathEnvCfg(ManagerBasedRLEnvCfg):
     """

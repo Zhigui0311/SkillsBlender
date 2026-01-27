@@ -31,6 +31,7 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         
         # # Base 
         # self.rewards.base_height.weight = -10.0  #！1 这个奖励还没有写
+        self.rewards.base_height_l2.weight = 0
         self.rewards.flat_orientation.weight = -0.5
         self.rewards.base_lin_vel_z.weight = -0.7
         self.rewards.base_ang_vel_xy.weight = -0.05
@@ -60,7 +61,7 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         # 命令参数调整
         self.commands.path_tracking.ranges.num_waypoints = 100
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 5
-
+        self.commands.path_tracking.jump_params.jump_height = 0.45
         # Others
         # self.rewards.air_time_variance.weight = -4.0
         # self.rewards.feet_acc.weight = -2e-6

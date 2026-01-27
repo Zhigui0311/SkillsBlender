@@ -142,6 +142,9 @@ class Go2PathFlatCfg(Go2PathEnvCfg):
         self.rewards.feet_stumble.weight = -2.0
         self.rewards.stalling_penalty.weight = -1.0
 
+        if self.__class__.__name__ == "Go2PathFlatCfg":
+            self.disable_zero_weight_rewards()
+
 
         
         
