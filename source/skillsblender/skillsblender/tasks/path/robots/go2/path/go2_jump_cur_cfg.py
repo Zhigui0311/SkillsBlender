@@ -102,6 +102,15 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.ranges.num_waypoints = 100
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 5
         self.commands.path_tracking.jump_params.jump_height = 0.45
+        
+        self.rewards.flat_orientation.weight = -0.1
+        self.rewards.base_lin_vel_z.weight = -0.1
+        self.rewards.base_ang_vel_xy.weight = -0.02
+        self.rewards.stalling_penalty.weight = -4.0
+
+        self.rewards.jump_forward_velocity.weight = 2.5  # encourage commit to jump
+        self.rewards.jump_clearance.weight = 3.0  # stronger reward to clear gaps
+        self.rewards.jump_air_time.weight = 2.0 
 
         # Others
         # self.rewards.air_time_variance.weight = -4.0

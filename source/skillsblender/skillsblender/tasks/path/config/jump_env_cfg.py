@@ -633,8 +633,6 @@ class JumpPathEnvCfg(ManagerBasedRLEnvCfg):
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
 
-    # 如需启用跳跃课程学习，取消下面一行的注释 (需先取消 JumpCurriculumCfg 的注释)
-    # curriculum: JumpCurriculumCfg = JumpCurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
