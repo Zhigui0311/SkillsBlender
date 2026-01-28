@@ -158,7 +158,9 @@ class JumpPathCommand(PathCommand):
                 if not is_gap.any():
                     continue
                 first_gap_idx = torch.nonzero(is_gap, as_tuple=False)[0, 0]
-                gap_start_dist[env_i] = x_vals[first_gap_idx] - self.cfg.jump_params.takeoff_margin
+                # Use configured takeoff margin based on gap width (will be determined later)
+                # For now, use narrow gap margin as default during detection
+                gap_start_dist[env_i] = x_vals[first_gap_idx] - self.cfg.jump_params.narrow_gap_takeoff_margin
                 has_gap[env_i] = True
                 end_candidates = torch.nonzero(~is_gap & (x_vals > x_vals[first_gap_idx]), as_tuple=False)
                 if end_candidates.numel() > 0:
@@ -209,7 +211,8 @@ class JumpPathCommand(PathCommand):
                 # Mark gap start
                 start_mask = is_gap & (~has_gap)
                 if start_mask.any():
-                    gap_start_dist[start_mask] = d - self.cfg.jump_params.takeoff_margin
+                    # Use configured takeoff margin (narrow gap margin as default during detection)
+                    gap_start_dist[start_mask] = d - self.cfg.jump_params.narrow_gap_takeoff_margin
                     has_gap |= start_mask
 
                 # Mark gap end (height recovers)
@@ -219,12 +222,46 @@ class JumpPathCommand(PathCommand):
                     
                     
         # 2. Plan 3D Path
-        # Total distance: extend a bit beyond gap end if gap exists, otherwise use default length
+        # Calculate gap width to determine endpoint extension and adjust takeoff margins
+        gap_width = gap_end_dist - gap_start_dist
+        # Classify gaps using configured threshold
+        is_narrow_gap = gap_width < self.cfg.jump_params.gap_width_threshold
+
+        # Adjust takeoff margins based on gap classification
+        # (Initial detection used narrow margin, now refine based on actual gap width)
+        takeoff_margin_adjustment = torch.where(
+            is_narrow_gap,
+            torch.tensor(0.0, device=self.device),  # Already using narrow margin
+            self.cfg.jump_params.wide_gap_takeoff_margin - self.cfg.jump_params.narrow_gap_takeoff_margin
+        )
+        # Apply adjustment only where gaps exist
+        gap_start_dist = torch.where(
+            has_gap,
+            gap_start_dist - takeoff_margin_adjustment,
+            gap_start_dist
+        )
+
+        # Endpoint extension: use configured values for narrow/wide gaps
+        endpoint_extension = torch.where(
+            is_narrow_gap,
+            self.cfg.jump_params.narrow_gap_endpoint_extension,
+            self.cfg.jump_params.wide_gap_endpoint_extension
+        )
+
+        # Total distance: extend beyond gap end if gap exists, otherwise use default length
         total_len = torch.where(
             has_gap & (gap_end_dist > 0),
-            gap_end_dist + 1.0,
+            gap_end_dist + endpoint_extension,
             torch.tensor(5.0, device=self.device)
         )
+
+        # Apply optional post-jump distance extension
+        if self.cfg.jump_params.post_jump_distance > 0:
+            total_len = torch.where(
+                has_gap & (gap_end_dist > 0),
+                total_len + self.cfg.jump_params.post_jump_distance,
+                total_len
+            )
 
         end_pos = start_pos.clone()
         end_pos[:, 0] += total_len
@@ -269,6 +306,7 @@ class JumpPathCommand(PathCommand):
         - 检测机器人是否在空中
         - 在空中时只考虑XY平面距离，避免航点推进过快
         - 在地面时使用正常的3D距离判断
+        - 在跳跃阶段使用更严格的航点阈值
         """
         robot_pos = self.robot.data.root_pos_w[:, :3]  # (N, 3)
         robot_height = robot_pos[:, 2]
@@ -290,8 +328,15 @@ class JumpPathCommand(PathCommand):
         # 选择距离判断方式
         dis_to_target = torch.where(is_in_air, dis_xy, dis_3d)
 
+        # 自适应航点阈值：跳跃阶段使用0.5m，其他阶段使用0.8m
+        # 判断是否在跳跃阶段：检查当前航点是否在跳跃段内
+        # 这需要访问gap_start_dist和gap_end_dist，但它们在_generate_trajectory中
+        # 作为简化，我们使用is_in_air作为跳跃阶段的代理
+        base_threshold = self.cfg.ranges.waypoint_reach_threshold  # 默认0.8m
+        jump_threshold = 0.5  # 跳跃阶段的严格阈值
+        reach_threshold = torch.where(is_in_air, jump_threshold, base_threshold)
+
         # 到达阈值判断
-        reach_threshold = self.cfg.ranges.waypoint_reach_threshold
         reached = dis_to_target < reach_threshold
 
         # 更新航点索引
@@ -304,7 +349,7 @@ class JumpPathCommand(PathCommand):
         # 检查是否到达终点
         target_pos_final = self.pos_path_w[torch.arange(self.num_envs), -1]
         goal_dis = torch.norm(target_pos_final - robot_pos, dim=-1)
-        goal_reached = (goal_dis < reach_threshold) & (self.current_waypoints_index >= self.num_waypoints - 1)
+        goal_reached = (goal_dis < base_threshold) & (self.current_waypoints_index >= self.num_waypoints - 1)
         self.goal_reached = self.goal_reached | goal_reached
 
         # 更新观测切片

@@ -104,12 +104,39 @@ class JumpPathCommandCfg(CommandTermCfg):
 
     @configclass
     class JumpParams:
-        jump_height: float = 0.35            # Max height of the parabolic arc
+        """Jump trajectory parameters for configurable jump behavior.
+
+        These parameters control how the robot plans and executes jumps over gaps.
+        """
+        # Basic jump parameters
+        jump_height: float = 0.35            # Max height of the parabolic arc (meters)
         gap_threshold: float = -0.4          # Height drop to identify a gap (meters)
-        scan_dist: float = 6.0               # How far to look ahead for gaps
-        scan_step: float = 0.1               # Resolution of terrain scanning
-        takeoff_margin: float = 0.2          # Distance before gap to start arc
-        landing_margin: float = 0.3          # Distance after gap to end arc
+        scan_dist: float = 6.0               # How far to look ahead for gaps (meters)
+        scan_step: float = 0.1               # Resolution of terrain scanning (meters)
+
+        # Gap classification
+        gap_width_threshold: float = 0.55    # Threshold to distinguish narrow vs wide gaps (meters)
+                                             # Gaps < threshold are narrow, >= threshold are wide
+
+        # Endpoint distance extensions (how far beyond gap end to place trajectory endpoint)
+        narrow_gap_endpoint_extension: float = 1.5  # Extension for narrow gaps (meters)
+        wide_gap_endpoint_extension: float = 2.0    # Extension for wide gaps (meters)
+
+        # Takeoff margins (distance before gap where parabolic arc begins)
+        narrow_gap_takeoff_margin: float = 0.4  # Takeoff margin for narrow gaps (meters)
+        wide_gap_takeoff_margin: float = 0.5    # Takeoff margin for wide gaps (meters)
+
+        # Landing margin (distance after gap where parabolic arc ends)
+        landing_margin: float = 0.5          # Distance after gap to end arc (meters)
+
+        # Optional post-jump forward distance
+        post_jump_distance: float = 0.0      # Additional forward distance after landing (meters)
+                                             # Set to 0 to stop at landing point
+                                             # Set > 0 to continue forward after landing
+
+        # Legacy parameters (kept for backward compatibility, not used with new config)
+        takeoff_margin: float = 0.2          # Deprecated: use narrow/wide_gap_takeoff_margin instead
+        # landing_margin is now the primary parameter (no longer legacy)
 
     jump_params: JumpParams = JumpParams()
 

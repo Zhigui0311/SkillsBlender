@@ -253,3 +253,95 @@ def hip_joint_angle_penalty(
         return torch.square(fr_penalty + fl_penalty + rr_penalty + rl_penalty)
     else:
         return torch.zeros(env.num_envs, device=env.device)
+
+def spinning_penalty(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    angular_vel_threshold: float = 1.0,
+    forward_vel_threshold: float = 0.3
+) -> torch.Tensor:
+    """
+    惩罚原地打转行为。
+    当角速度高而前向速度低时，说明机器人在原地打转而不是前进。
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # 获取角速度和线速度
+    ang_vel_b = asset.data.root_ang_vel_b[:, :3]
+    lin_vel_b = asset.data.root_lin_vel_b[:, :3]
+
+    # 计算角速度大小（主要关注Z轴旋转）
+    angular_vel_magnitude = torch.abs(ang_vel_b[:, 2])
+
+    # 前向速度
+    forward_vel = lin_vel_b[:, 0]
+
+    # 检测打转行为：高角速度 + 低前向速度
+    is_spinning = (angular_vel_magnitude > angular_vel_threshold) & (forward_vel < forward_vel_threshold)
+
+    # 返回惩罚（负值）
+    penalty = is_spinning.float()
+
+    return penalty
+
+def approach_momentum_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    approach_distance: float = 3.0,
+    min_velocity: float = 1.0
+) -> torch.Tensor:
+    """
+    接近阶段动量奖励。
+    当机器人接近间隙时保持足够的前向速度，鼓励提前建立动量。
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    command = env.command_manager.get_term(command_name)
+
+    # 获取机器人位置和前向速度
+    robot_pos = asset.data.root_pos_w[:, :3]
+    forward_vel = asset.data.root_lin_vel_b[:, 0]
+
+    # 获取当前目标航点位置
+    target_pos = command.pos_path_w[torch.arange(env.num_envs), command.current_waypoints_index]
+
+    # 计算到目标的距离
+    distance_to_target = torch.norm(target_pos[:, :2] - robot_pos[:, :2], dim=-1)
+
+    # 检测是否在接近阶段（距离目标在approach_distance内）
+    in_approach_phase = distance_to_target < approach_distance
+
+    # 检测速度是否足够
+    has_momentum = forward_vel > min_velocity
+
+    # 只有在接近阶段且有足够速度时才给予奖励
+    reward = (in_approach_phase & has_momentum).float()
+
+    return reward
+
+def consistency_reward(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    min_velocity: float = 0.8,
+    time_threshold: float = 2.0
+) -> torch.Tensor:
+    """
+    一致性奖励。
+    奖励机器人持续保持前向速度，避免走走停停。
+
+    注意：这需要在环境中维护一个计数器来跟踪连续满足条件的时间。
+    作为简化，我们只检查当前速度是否满足条件。
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # 获取前向速度
+    forward_vel = asset.data.root_lin_vel_b[:, 0]
+
+    # 检测速度是否持续满足条件
+    # 简化版本：只检查当前速度
+    maintains_velocity = forward_vel > min_velocity
+
+    reward = maintains_velocity.float()
+
+    return reward
+

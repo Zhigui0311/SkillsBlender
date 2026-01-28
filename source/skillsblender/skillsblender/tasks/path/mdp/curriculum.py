@@ -167,8 +167,9 @@ def curriculum_jump_gap_width(
     env: ManagerBasedRLEnv,
     env_ids: Sequence[int] | torch.Tensor | None,
     reward_threshold: float,
-    initial_gap_range: tuple[float, float] = (0.3, 0.5),
-    final_gap_range: tuple[float, float] = (0.6, 1.0),
+    initial_gap_range: tuple[float, float] = (0.2, 0.3),  # Updated: gentler start
+    intermediate_gap_range: tuple[float, float] = (0.3, 0.5),  # New: intermediate level
+    final_gap_range: tuple[float, float] = (0.5, 0.8),  # Updated: reduced max
     step_size: float = 0.1,
 ) -> None:
     """
@@ -180,8 +181,9 @@ def curriculum_jump_gap_width(
         env: 环境实例
         env_ids: 参与课程评估的环境索引（None 表示全部环境）
         reward_threshold: 触发课程进阶的平均奖励阈值
-        initial_gap_range: 初始沟壑宽度范围 (min, max)
-        final_gap_range: 最终沟壑宽度范围 (min, max)
+        initial_gap_range: 初始沟壑宽度范围 (min, max) - level 0-1
+        intermediate_gap_range: 中级沟壑宽度范围 (min, max) - level 2-3
+        final_gap_range: 最终沟壑宽度范围 (min, max) - level 4+
         step_size: 每次增加的步长 (米)
     """
     # 获取当前的平均奖励
@@ -201,7 +203,7 @@ def curriculum_jump_gap_width(
                 if "narrow_gaps" in gen_cfg.sub_terrains:
                     narrow_cfg = gen_cfg.sub_terrains["narrow_gaps"]
                     current_max = narrow_cfg.gap_width_range[1]
-                    new_max = min(current_max + step_size, initial_gap_range[1])
+                    new_max = min(current_max + step_size, intermediate_gap_range[1])
                     narrow_cfg.gap_width_range = (initial_gap_range[0], new_max)
                     print(f"[Jump Curriculum] Narrow gap width updated: {narrow_cfg.gap_width_range}")
 
@@ -210,7 +212,7 @@ def curriculum_jump_gap_width(
                     wide_cfg = gen_cfg.sub_terrains["wide_gaps"]
                     current_max = wide_cfg.gap_width_range[1]
                     new_max = min(current_max + step_size, final_gap_range[1])
-                    wide_cfg.gap_width_range = (final_gap_range[0], new_max)
+                    wide_cfg.gap_width_range = (intermediate_gap_range[0], new_max)
                     print(f"[Jump Curriculum] Wide gap width updated: {wide_cfg.gap_width_range}")
 
 
@@ -219,9 +221,9 @@ def curriculum_jump_height_requirement(
     env_ids: Sequence[int] | torch.Tensor | None,
     command_name: str,
     reward_threshold: float,
-    initial_height: float = 0.25,
-    final_height: float = 0.45,
-    step_size: float = 0.05,
+    initial_height: float = 0.20,  # Updated: reduced from 0.25
+    final_height: float = 0.40,  # Updated: reduced from 0.45
+    step_size: float = 0.03,  # Updated: reduced from 0.05
 ) -> None:
     """
     根据训练进度逐步提高跳跃高度要求。
@@ -375,9 +377,9 @@ def curriculum_jump_speed_requirement(
     env: ManagerBasedRLEnv,
     env_ids: Sequence[int] | torch.Tensor | None,
     reward_threshold: float,
-    initial_speed: float = 1.0,
+    initial_speed: float = 0.8,  # Updated: reduced from 1.0
     final_speed: float = 2.0,
-    step_size: float = 0.1,
+    step_size: float = 0.08,  # Updated: reduced from 0.1
 ) -> None:
     """
     根据训练进度逐步提高跳跃时的速度要求。

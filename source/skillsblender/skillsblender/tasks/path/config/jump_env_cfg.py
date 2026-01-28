@@ -525,6 +525,41 @@ class RewardsCfg:
         },
     )
 
+    # --- New jump-specific rewards ---
+    # 打转惩罚：惩罚原地打转而不前进的行为
+    spinning_penalty = RewTerm(
+        func=mdp.spinning_penalty,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "angular_vel_threshold": 1.0,
+            "forward_vel_threshold": 0.3
+        }
+    )
+
+    # 接近动量奖励：鼓励在接近间隙时保持前向速度
+    approach_momentum_reward = RewTerm(
+        func=mdp.approach_momentum_reward,
+        weight=0.0,
+        params={
+            "command_name": "path_tracking",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "approach_distance": 3.0,
+            "min_velocity": 1.0
+        }
+    )
+
+    # 一致性奖励：奖励持续保持前向速度
+    consistency_reward = RewTerm(
+        func=mdp.consistency_reward,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "min_velocity": 0.8,
+            "time_threshold": 2.0
+        }
+    )
+
 
 
 @configclass
