@@ -49,7 +49,13 @@ class JumpPathCommand(PathCommand):
             indices=terrain_generator.terrain_mesh.faces,
             device=self.device
         )
-
+        self.heading_offset = torch.zeros(self.num_envs, device=self.device)
+        self._planned_start_pos = torch.zeros(self.num_envs, 3, device=self.device)
+        self._planned_forward_dir = torch.zeros(self.num_envs, 2, device=self.device)
+        self._jump_start_dist = torch.zeros(self.num_envs, device=self.device)
+        self._jump_end_dist = torch.zeros(self.num_envs, device=self.device)
+        self._has_gap = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        
     def _generate_trajectory(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Generate position and yaw trajectories with parabolic arcs over terrain gaps.
@@ -62,6 +68,14 @@ class JumpPathCommand(PathCommand):
         """
         num_batch = len(env_ids)
         start_pos = self.robot.data.root_pos_w[env_ids].clone()
+        robot_quat_w = self.robot.data.root_quat_w[env_ids]
+        _, _, robot_yaw = math_utils.euler_xyz_from_quat(robot_quat_w)
+        planned_yaw = robot_yaw + self.heading_offset[env_ids]
+        forward_dir = torch.stack(
+            [torch.cos(planned_yaw), torch.sin(planned_yaw)], dim=-1
+        )
+        self._planned_start_pos[env_ids] = start_pos
+        self._planned_forward_dir[env_ids] = forward_dir
 
         # Clamp start position to env bounds
         xy_min, xy_max = self._get_env_xy_bounds(env_ids)
@@ -130,13 +144,18 @@ class JumpPathCommand(PathCommand):
         if self.height_scanner is not None:
             ray_hits_w = self.height_scanner.data.ray_hits_w[env_ids]
             robot_pos_w = start_pos[:, :3]
-            robot_quat_w = self.robot.data.root_quat_w[env_ids]
+            # robot_quat_w = self.robot.data.root_quat_w[env_ids]
             rel_hits = ray_hits_w - robot_pos_w.unsqueeze(1)
             rel_hits_flat = rel_hits.reshape(-1, 3)
             quat_flat = robot_quat_w.repeat_interleave(rel_hits.shape[1], dim=0)
             rel_hits_b = math_utils.quat_apply_inverse(quat_flat, rel_hits_flat).reshape(rel_hits.shape)
-            rel_x = rel_hits_b[..., 0]
-            rel_y = rel_hits_b[..., 1]
+            # rel_x = rel_hits_b[..., 0]
+            # rel_y = rel_hits_b[..., 1]
+            heading_offset = self.heading_offset[env_ids].view(-1, 1)
+            cos_offset = torch.cos(heading_offset)
+            sin_offset = torch.sin(heading_offset)
+            rel_x = cos_offset * rel_hits_b[..., 0] + sin_offset * rel_hits_b[..., 1]
+            rel_y = -sin_offset * rel_hits_b[..., 0] + cos_offset * rel_hits_b[..., 1]
             rel_z = ray_hits_w[..., 2]        
 
             valid_mask = (
@@ -170,7 +189,8 @@ class JumpPathCommand(PathCommand):
             for i in range(steps):
                 d = i * self.cfg.jump_params.scan_step
                 check_xy = start_pos[:, :2].clone()
-                check_xy[:, 0] += d  # Scan forward along X-axis
+                # check_xy[:, 0] += d  # Scan forward along X-axis
+                check_xy += forward_dir * d  # Scan forward along heading direction
 
                 # Clamp to env bounds
                 if xy_min is not None:
@@ -240,6 +260,9 @@ class JumpPathCommand(PathCommand):
             gap_start_dist - takeoff_margin_adjustment,
             gap_start_dist
         )
+        self._has_gap[env_ids] = has_gap
+        self._jump_start_dist[env_ids] = gap_start_dist
+        self._jump_end_dist[env_ids] = gap_end_dist
 
         # Endpoint extension: use configured values for narrow/wide gaps
         endpoint_extension = torch.where(
@@ -264,7 +287,8 @@ class JumpPathCommand(PathCommand):
             )
 
         end_pos = start_pos.clone()
-        end_pos[:, 0] += total_len
+        # end_pos[:, 0] += total_len
+        end_pos[:, :2] += forward_dir * total_len.unsqueeze(1)
 
         # Clamp end position to env bounds
         if xy_min is not None:
@@ -298,6 +322,31 @@ class JumpPathCommand(PathCommand):
 
         return pos_traj, yaw_traj
 
+    @property
+    def is_in_jump_phase(self) -> torch.Tensor:
+        """Return per-env mask for whether the robot is inside the planned jump segment."""
+        rel_pos = self.robot.data.root_pos_w[:, :2] - self._planned_start_pos[:, :2]
+        dist_along = torch.sum(rel_pos * self._planned_forward_dir, dim=-1)
+        in_segment = (dist_along > self._jump_start_dist) & (dist_along < self._jump_end_dist)
+        return self._has_gap & in_segment
+
+    def _resample_command(self, env_ids):#这个现在相对之前有变化了吗，可以吗？
+        """Resample the command for the given environment ids."""
+        offset_min, offset_max = self.cfg.jump_params.heading_offset_range
+        if offset_min == offset_max:
+            self.heading_offset[env_ids] = offset_min
+        else:
+            self.heading_offset[env_ids] = torch.empty(len(env_ids), device=self.device).uniform_(
+                offset_min, offset_max
+            )
+        pos_traj, yaw_traj = self._generate_trajectory(env_ids)
+        self.pos_path_w[env_ids] = pos_traj
+        self.heading_path_w[env_ids] = yaw_traj
+        self.pos_path_w_cur[env_ids] = self.pos_path_w[env_ids, 0, :]
+        self.current_waypoints_index[env_ids] = 0
+        self.goal_reached[env_ids] = False
+        
+        
     def _update_command(self):
         """
         Override: 更新航点索引 - 跳跃任务需要特殊处理空中情况。

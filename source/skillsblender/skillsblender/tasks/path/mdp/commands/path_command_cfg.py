@@ -137,6 +137,12 @@ class JumpPathCommandCfg(CommandTermCfg):
         # Legacy parameters (kept for backward compatibility, not used with new config)
         takeoff_margin: float = 0.2          # Deprecated: use narrow/wide_gap_takeoff_margin instead
         # landing_margin is now the primary parameter (no longer legacy)
+        
+        
+        # Heading offset for planned jump direction (radians)
+        # Allows training with different initial and final headings.
+        heading_offset_range: tuple[float, float] = (0.0, 0.0)
+
 
     jump_params: JumpParams = JumpParams()
 

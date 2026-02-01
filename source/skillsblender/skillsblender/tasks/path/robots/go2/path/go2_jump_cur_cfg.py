@@ -86,6 +86,19 @@ class JumpCurriculumCfg:
         }
     )
 
+    # 跳跃方向偏移课程: 从直线跳跃逐步扩大转向范围
+    jump_heading_offset = CurrTerm(
+        func=mdp.curriculum_jump_heading_offset_range,
+        params={
+            "command_name": "path_tracking",
+            "reward_threshold": 80.0,
+            "initial_range": (0.0, 0.0),
+            "final_range": (-0.4, 0.4),
+            "step_size": 0.05,
+        }
+    )
+
+
 @configclass
 class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
     """Unitree Go2 in gap terrain path following task configuration with curriculum."""
@@ -112,6 +125,7 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.jump_params.wide_gap_takeoff_margin = 0.5
         self.commands.path_tracking.jump_params.landing_margin = 0.5
         self.commands.path_tracking.jump_params.post_jump_distance = 0.0  # 0 = stop at landing
+        self.commands.path_tracking.jump_params.heading_offset_range = (0.0, 0.0)
         
         self.rewards.flat_orientation.weight = -0.1
         self.rewards.base_lin_vel_z.weight = -0.1
@@ -124,11 +138,22 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.rewards.jump_air_time.weight = 2.0
         self.rewards.jump_height_tracking.weight = 4.0  # 将根据距离动态调整
 
+        # emphasize tracking the planned trajectory
+        self.rewards.track_xy.weight = 8.0
+        self.rewards.track_yaw.weight = 4.0
+        self.rewards.track_velocity.weight = 5.0
+
+        # Feet rewards: encourage all feet to lift during jump
+        self.rewards.air_time_variance.weight = -2.0
+        self.rewards.feet_air_time.weight = 2.0
+        self.rewards.feet_air_time.params["threshold"] = 0.3
+
+
         # New rewards for fixing spinning behavior
         self.rewards.spinning_penalty.weight = -3.0  # 强力惩罚打转行为
         self.rewards.approach_momentum_reward.weight = 2.0  # 鼓励接近时的动量
         self.rewards.consistency_reward.weight = 1.5  # 鼓励持续前进 
-
+        
         # Others
         # self.rewards.air_time_variance.weight = -4.0
         # self.rewards.feet_acc.weight = -2e-6

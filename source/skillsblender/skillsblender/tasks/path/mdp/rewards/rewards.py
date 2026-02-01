@@ -508,6 +508,7 @@ def feet_height_body(
     target_height: float,
     dis_threshold: float = 0.25,
     heading_threshold: float = 0.5,
+    jump_only: bool = False,
 ) -> torch.Tensor:
     """Reward the swinging feet for clearing a specified height off the ground"""
     asset: RigidObject = env.scene[asset_cfg.name]
@@ -536,6 +537,8 @@ def feet_height_body(
     reward = torch.sum(foot_z_target_error * is_swing, dim=1) # (num_envs,)
     
     command: PathCommand = env.command_manager.get_term(command_name)
+    if jump_only and hasattr(command, "is_in_jump_phase"):
+        reward = torch.where(command.is_in_jump_phase, reward, torch.zeros_like(reward))
     distance = torch.norm(command.robot_pos_w - command.target_pos_w, dim=-1)  # (num_envs,)
     heading_error = torch.abs(command.target_heading_b)  # (num_envs,)
     condition = (distance < dis_threshold) & (heading_error < heading_threshold)

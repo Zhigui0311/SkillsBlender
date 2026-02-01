@@ -29,6 +29,11 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         self.rewards.jump_landing_stability.weight = 2.5  # 2.0 → 2.5
         self.rewards.jump_forward_velocity.weight = 1.5  # 2.0 → 1.5
         
+        # emphasize tracking the planned trajectory
+        self.rewards.track_xy.weight = 8.0
+        self.rewards.track_yaw.weight = 4.0
+        self.rewards.track_velocity.weight = 5.0
+        
         # # Base 
         # self.rewards.base_height.weight = -10.0  #！1 这个奖励还没有写
         self.rewards.base_height_l2.weight = 0
@@ -52,6 +57,10 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         # Action penalties
         self.rewards.applied_torque_limits.weight = -0.2
         self.rewards.action_rate_l2.weight = -2e-5
+        # Feet rewards: encourage all feet to lift during jump
+        self.rewards.air_time_variance.weight = -2.0
+        self.rewards.feet_air_time.weight = 2.0
+        self.rewards.feet_air_time.params["dis_threshold"] = 0.3
         
         # Contact sensor
         self.rewards.undesired_contacts.weight = -2.0

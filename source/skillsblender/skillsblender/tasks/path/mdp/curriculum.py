@@ -411,8 +411,47 @@ def curriculum_jump_speed_requirement(
         current_speed = env._jump_target_velocity
         new_speed = min(current_speed + step_size, final_speed)
         env._jump_target_velocity = new_speed
-        print(f"[Jump Curriculum] Jump speed requirement updated: {new_speed:.2f}m/s")
+        # print(f"[Jump Curriculum] Jump speed requirement updated: {new_speed:.2f}m/s")
 
+
+
+def curriculum_jump_heading_offset_range(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int] | torch.Tensor | None,
+    command_name: str,
+    reward_threshold: float,
+    initial_range: tuple[float, float] = (0.0, 0.0),
+    final_range: tuple[float, float] = (-0.4, 0.4),
+    step_size: float = 0.05,
+) -> None:
+    """
+    根据训练进度逐步扩大跳跃方向偏移范围（允许起始与目标方向不同）。
+
+    参数:
+        env: 环境实例
+        env_ids: 参与课程评估的环境索引（None 表示全部环境）
+        command_name: 命令管理器中跳跃命令的名称
+        reward_threshold: 触发课程进阶的平均奖励阈值
+        initial_range: 初始偏移范围 (rad)
+        final_range: 最终偏移范围 (rad)
+        step_size: 每次扩大范围的步长 (rad)
+    """
+    mean_reward = _mean_episode_reward(env, env_ids)
+    if mean_reward is None:
+        return
+
+    if mean_reward > reward_threshold:
+        command = env.command_manager.get_term(command_name)
+        if hasattr(command.cfg, "jump_params"):
+            current_min, current_max = command.cfg.jump_params.heading_offset_range
+            target_min, target_max = final_range
+            new_min = max(current_min - step_size, target_min)
+            new_max = min(current_max + step_size, target_max)
+            command.cfg.jump_params.heading_offset_range = (new_min, new_max)
+            print(
+                "[Jump Curriculum] Heading offset range updated: "
+                f"{command.cfg.jump_params.heading_offset_range}"
+            )
 # """Curriculum learning functions for path tracking tasks."""
 
 # from __future__ import annotations

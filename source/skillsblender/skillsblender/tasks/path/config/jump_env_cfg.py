@@ -462,6 +462,24 @@ class RewardsCfg:
         }
     )
 
+    air_time_variance = RewTerm(
+        func=mdp.air_time_variance_penalty,
+        weight=0.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
+    )
+    
+    feet_air_time = RewTerm(
+        func=mdp.feet_air_time_1,
+        weight=0.0,
+        params={
+            "command_name": "path_tracking",
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "threshold": 0.5,
+            "dis_threshold": 0.25,
+            "heading_threshold": 0.5,
+        },
+    )
+    
     #base
     base_height_l2 = RewTerm(func=mdp.base_height_l2, params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")}, weight=-1.0)
     flat_orientation = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
