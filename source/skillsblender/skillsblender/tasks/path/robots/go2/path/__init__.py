@@ -141,3 +141,103 @@ gym.register(
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
     },
 )
+
+
+# ==============================================================================
+# New Skill Environments Registration
+# ==============================================================================
+
+# ---------------------- Walk ----------------------
+gym.register(
+    id="go2-path-walk-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_walk_cfg:Go2WalkEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2WalkPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-walk-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_walk_cfg:Go2WalkEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2WalkPPOCfg",
+    },
+)
+
+# ---------------------- Stairs ----------------------
+gym.register(
+    id="go2-path-stairs-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_stairs_cfg:Go2StairsEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2StairsPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-stairs-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_stairs_cfg:Go2StairsEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2StairsPPOCfg",
+    },
+)
+
+# ---------------------- Climb ----------------------
+gym.register(
+    id="go2-path-climb-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_climb_cfg:Go2ClimbEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ClimbPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-climb-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_climb_cfg:Go2ClimbEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ClimbPPOCfg",
+    },
+)
+
+# ---------------------- Crouch ----------------------
+gym.register(
+    id="go2-path-crouch-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_crouch_cfg:Go2CrouchEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2CrouchPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-crouch-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_crouch_cfg:Go2CrouchEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2CrouchPPOCfg",
+    },
+)
+
+# ---------------------- Blender (Multi-Skill) ----------------------
+gym.register(
+    id="go2-path-blener-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_blener_cfg:Go2BlenerEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2BlenerPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-blener-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_blener_cfg:Go2BlenerEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2BlenerPPOCfg",
+    },
+)

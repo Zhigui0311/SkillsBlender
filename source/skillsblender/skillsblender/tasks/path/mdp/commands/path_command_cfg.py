@@ -1,7 +1,7 @@
 from __future__ import annotations
-from typing import Tuple, Literal
+from typing import Tuple, Literal, List
 from isaaclab.utils import configclass
-from dataclasses import field 
+from dataclasses import field
 from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from skillsblender.tasks.path.config import WAYPOINTS_MARKER_CFG, START_SPHERE_MARKER_CFG, GOAL_SPHERE_MARKER_CFG
@@ -53,6 +53,53 @@ class ClimbParams:
     climb_len: float = 2.0
     climb_height: float = 0.5
     start_dist_range: Tuple[float, float] = (1.0, 2.0)
+
+@configclass
+class WalkParams:
+    """行走路径参数"""
+    v_ref: float = 1.0  # 参考速度 (m/s)
+    base_height_ref: float = 0.34  # 参考高度 (m)
+
+@configclass
+class EnvironmentBounds:
+    """环境边界配置"""
+    x_range: Tuple[float, float] = (-5.0, 5.0)  # X 方向范围 (m)
+    y_range: Tuple[float, float] = (-5.0, 5.0)  # Y 方向范围 (m)
+    z_range: Tuple[float, float] = (0.0, 2.0)   # Z 方向范围 (m)
+    boundary_margin: float = 0.5  # 距离边界的安全距离 (m)
+
+@configclass
+class ValidationParams:
+    """路径验证参数"""
+    max_waypoint_distance: float = 0.2  # 相邻航点最大距离 (m)
+    max_heading_change: float = 0.5  # 相邻航向最大变化 (rad)，约 28.6 度
+    max_climb_angle: float = 0.6  # 最大爬升角度 (rad)，约 34.4 度
+    max_descent_angle: float = 0.6  # 最大下降角度 (rad)
+    min_segment_length: float = 0.5  # 最小 segment 长度 (m)
+
+@configclass
+class PathGeneratorCfg:
+    """路径生成器配置"""
+    # 环境边界
+    env_bounds: EnvironmentBounds = field(default_factory=EnvironmentBounds)
+
+    # 路径采样参数
+    num_waypoints: int = 64  # 路径航点数量
+    waypoint_spacing: float = 0.1  # 航点间距 (m)
+
+    # 技能参数
+    walk_params: WalkParams = field(default_factory=WalkParams)
+    jump_params: JumpParams = field(default_factory=JumpParams)
+    stairs_params: StairsParams = field(default_factory=StairsParams)
+    climb_params: ClimbParams = field(default_factory=ClimbParams)
+    crouch_params: CrouchParams = field(default_factory=CrouchParams)
+
+    # 验证参数
+    validation_params: ValidationParams = field(default_factory=ValidationParams)
+
+    # 多技能路径规划
+    enable_multi_skill: bool = False  # 是否启用多技能路径规划
+    skill_sequence: List[str] = field(default_factory=lambda: ["walk"])  # 技能序列
 
 @configclass
 class PathRanges:

@@ -147,6 +147,185 @@ class GO2JumpPPOWithSymmetryCfg(PathRslRlPPOCfg):
         data_augmentation_func=GO2.compute_symmetric_states#这个函数需要的env obs参数怎么传递进来的？
         )
     )
+
+
+# ==============================================================================
+# New Skill PPO Configurations
+# ==============================================================================
+
+@configclass
+class GO2WalkPPOCfg(PathRslRlPPOCfg):
+    """Go2 walk skill PPO configuration."""
+    num_steps_per_env = 48
+    max_iterations = 3000
+    save_interval = 200
+    experiment_name = "go2-path-walk"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
+
+
+@configclass
+class GO2StairsPPOCfg(PathRslRlPPOCfg):
+    """Go2 stairs skill PPO configuration."""
+    num_steps_per_env = 48
+    max_iterations = 3000
+    save_interval = 200
+    experiment_name = "go2-path-stairs"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
+
+
+@configclass
+class GO2ClimbPPOCfg(PathRslRlPPOCfg):
+    """Go2 climb skill PPO configuration."""
+    num_steps_per_env = 48
+    max_iterations = 3000
+    save_interval = 200
+    experiment_name = "go2-path-climb"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
+
+
+@configclass
+class GO2CrouchPPOCfg(PathRslRlPPOCfg):
+    """Go2 crouch skill PPO configuration."""
+    num_steps_per_env = 48
+    max_iterations = 3000
+    save_interval = 200
+    experiment_name = "go2-path-crouch"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
+
+
+@configclass
+class GO2BlenerPPOCfg(PathRslRlPPOCfg):
+    """Go2 multi-skill blender PPO configuration."""
+    num_steps_per_env = 64  # Longer rollouts for complex terrain
+    max_iterations = 5000  # More iterations for multi-skill learning
+    save_interval = 200
+    experiment_name = "go2-path-blener"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
    
 
     

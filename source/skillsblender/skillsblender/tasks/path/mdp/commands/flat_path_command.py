@@ -2,28 +2,8 @@ from __future__ import annotations
 
 import torch
 from typing import TYPE_CHECKING
-from collections.abc import Sequence
 
-from isaaclab.assets import Articulation
-from isaaclab.managers import CommandTerm
-from isaaclab.markers import VisualizationMarkers #？作用是什么？
-from isaaclab.terrains import TerrainImporter #不用引用地形生成的吗？
-import isaaclab.utils.math as math_utils
-
-if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedRLEnv  
-    from .path_command_cfg import PathCommandCfg                                      
-
-import isaaclab.sim as sim_utils
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-
-
-
-from __future__ import annotations
-
-import torch
-from typing import TYPE_CHECKING
-
+from isaaclab.markers import VisualizationMarkers
 from .base_path_command import SegmentPathCommand
 from .path_command_cfg import PathCommandCfg
 

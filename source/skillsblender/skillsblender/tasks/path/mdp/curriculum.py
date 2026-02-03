@@ -75,18 +75,17 @@ def curriculum_path_length(
     # 如果平均奖励超过阈值，增加路径长度
     if mean_reward > reward_threshold:
         # 获取当前路径长度范围
-        current_min = command.cfg.inpoints.end_to_start_pos[0]
-        current_max = command.cfg.inpoints.end_to_start_pos[1]
+        # Note: PathCommandCfg uses ranges.default_path_len, not inpoints.end_to_start_pos
+        current_len = command.cfg.ranges.default_path_len
 
         # 计算新的路径长度范围（逐步接近最终范围）
         step_size = 0.5  # 每次增加 0.5m
-        new_min = min(current_min, final_range[0])
-        new_max = min(current_max + step_size, final_range[1])
+        new_len = min(current_len + step_size, final_range[1])
 
-        # 更新路径长度范围
-        command.cfg.inpoints.end_to_start_pos = (new_min, new_max, 0)
+        # 更新路径长度
+        command.cfg.ranges.default_path_len = new_len
 
-        print(f"[Curriculum] Path length updated: ({new_min:.1f}, {new_max:.1f})")
+        print(f"[Curriculum] Path length updated: {new_len:.1f}m")
 
 
 def curriculum_velocity_requirement(
