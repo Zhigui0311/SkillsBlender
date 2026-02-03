@@ -691,4 +691,3 @@ def curriculum_jump_heading_offset_range(
 #         new_speed = min(current_speed + step_size, final_speed)
 #         env._jump_target_velocity = new_speed
 #         print(f"[Jump Curriculum] Jump speed requirement updated: {new_speed:.2f}m/s")
-

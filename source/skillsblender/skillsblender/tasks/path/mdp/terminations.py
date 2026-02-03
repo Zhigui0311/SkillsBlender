@@ -5,8 +5,8 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
-from isaaclab.assets import Articulation # [新增] 备用
-from isaaclab.sensors import ContactSensor # [新增] 用于类型提示
+from isaaclab.assets import Articulation 
+from isaaclab.sensors import ContactSensor 
 from isaaclab.managers import SceneEntityCfg
 
 

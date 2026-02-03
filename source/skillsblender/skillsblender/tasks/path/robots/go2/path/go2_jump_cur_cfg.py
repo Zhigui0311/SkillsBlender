@@ -114,9 +114,12 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         
         # Command parameters adjustment
         self.commands.path_tracking.ranges.num_waypoints = 100
-        self.commands.path_tracking.ranges.num_lookahead_waypoints = 5
         self.commands.path_tracking.jump_params.jump_height = 0.45
-
+        self.commands.path_tracking.ranges.num_lookahead_waypoints = 8
+        self.commands.path_tracking.ranges.waypoint_reach_threshold = 0.6
+        self.commands.path_tracking.jump_params.scan_step = 0.05
+        self.commands.path_tracking.jump_params.scan_width = 0.2
+        
         # Configurable jump trajectory parameters
         self.commands.path_tracking.jump_params.gap_width_threshold = 0.55
         self.commands.path_tracking.jump_params.narrow_gap_endpoint_extension = 1.5
@@ -127,21 +130,45 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.jump_params.post_jump_distance = 0.0  # 0 = stop at landing
         self.commands.path_tracking.jump_params.heading_offset_range = (0.0, 0.0)
         
-        self.rewards.flat_orientation.weight = -0.1
-        self.rewards.base_lin_vel_z.weight = -0.1
-        self.rewards.base_ang_vel_xy.weight = -0.02
+        # self.rewards.flat_orientation.weight = -0.1
+        # self.rewards.base_lin_vel_z.weight = -0.1
+        # self.rewards.base_ang_vel_xy.weight = -0.02
         self.rewards.stalling_penalty.weight = -5.0  # Updated: 增强停滞惩罚
+        self.rewards.undesired_contacts.weight = -1.0
 
         # Jump-specific rewards with updated weights
-        self.rewards.jump_forward_velocity.weight = 2.5  # 基础权重，将在接近gap时动态调整
-        self.rewards.jump_clearance.weight = 3.0  # 强化间隙清除奖励
-        self.rewards.jump_air_time.weight = 2.0
-        self.rewards.jump_height_tracking.weight = 4.0  # 将根据距离动态调整
-
+        # self.rewards.jump_forward_velocity.weight = 2.5  # 基础权重，将在接近gap时动态调整
+        # self.rewards.jump_clearance.weight = 3.0  # 强化间隙清除奖励
+        # self.rewards.jump_air_time.weight = 2.0
+        # self.rewards.jump_height_tracking.weight = 4.0  # 将根据距离动态调整
+        
+        self.rewards.air_time_variance.weight = 0.0
+        self.rewards.feet_air_time.weight = 0.0
+        self.rewards.joint_torques_l2.weight = 0.0
+        self.rewards.joint_vel_l2.weight = 0.0
+        self.rewards.joint_acc_l2.weight = 0.0
+        self.rewards.joint_pos_limits.weight = 0.0
+        self.rewards.joint_vel_limits.weight = 0.0
+        self.rewards.joint_mirror.weight = 0.0
+        self.rewards.base_height_l2.weight = 0.0
+        self.rewards.flat_orientation.weight = 0.0
+        self.rewards.base_lin_vel_z.weight = 0.0
+        self.rewards.base_ang_vel_xy.weight = 0.0
+        self.rewards.base_acc.weight = 0.0
+        self.rewards.track_yaw.weight = 0.0
+        self.rewards.jump_landing_stability.weight = 2.5
+        self.rewards.jump_forward_velocity.weight = 0.0
+        self.rewards.jump_pitch_control.weight = 0.0
+        self.rewards.jump_air_time.weight = 0.0
+        self.rewards.joint_deviation.weight = 0.0
+        
+        self.rewards.jump_height_tracking.weight = 4.0
+        self.rewards.jump_clearance.weight = 3.0
+        
         # emphasize tracking the planned trajectory
         self.rewards.track_xy.weight = 8.0
-        self.rewards.track_yaw.weight = 4.0
-        self.rewards.track_velocity.weight = 5.0
+        # self.rewards.track_yaw.weight = 4.0
+        self.rewards.track_velocity.weight = 8.0
 
         # Feet rewards: encourage all feet to lift during jump
         self.rewards.air_time_variance.weight = -2.0

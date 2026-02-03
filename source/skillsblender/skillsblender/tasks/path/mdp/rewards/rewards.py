@@ -16,7 +16,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers.manager_base import ManagerTermBase
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.sensors import ContactSensor, RayCaster
-from skillsblender.tasks.path.mdp.commands.path_command import PathCommand
+from SkillsBlender.source.skillsblender.skillsblender.tasks.path.mdp.commands.flat_path_command import PathCommand
 
 import isaaclab.utils.math as math_utils
 import isaaclab.utils.warp as warp_utils
