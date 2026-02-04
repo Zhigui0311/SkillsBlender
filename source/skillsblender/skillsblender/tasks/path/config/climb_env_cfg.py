@@ -67,10 +67,11 @@ class ClimbPathEnvCfg(PathEnvCfg):
 
         # Use climb scene
         self.scene: MyClimbSceneCfg = MyClimbSceneCfg(num_envs=4096, env_spacing=2.5)
-        self.commands.path_tracking.class_type = mdp.commands.ClimbPathCommand
+        self.commands.path_tracking.class_type = mdp.commands.PlannerPathCommand
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["climb"]
 
         # Climb-specific command configuration
-        self.commands.path_tracking.ranges.num_waypoints = 64
+        self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.climb_params.climb_len = 2.0
         self.commands.path_tracking.climb_params.climb_height = 0.5

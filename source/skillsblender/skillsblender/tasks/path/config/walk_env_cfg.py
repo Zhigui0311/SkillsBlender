@@ -62,9 +62,10 @@ class WalkPathEnvCfg(PathEnvCfg):
         self.scene: MyWalkSceneCfg = MyWalkSceneCfg(num_envs=4096, env_spacing=2.5)
 
         # Walk-specific command configuration
-        self.commands.path_tracking.ranges.num_waypoints = 64
+        self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.ranges.default_path_len = 5.0
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk"]
 
         # Walk-specific rewards
         self.rewards.track_xy.weight = 5.0

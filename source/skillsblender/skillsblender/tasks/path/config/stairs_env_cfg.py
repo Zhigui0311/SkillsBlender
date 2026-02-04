@@ -71,11 +71,12 @@ class StairsPathEnvCfg(PathEnvCfg):
 
         # Use stairs scene
         self.scene: MyStairsSceneCfg = MyStairsSceneCfg(num_envs=4096, env_spacing=2.5)
-        self.commands.path_tracking.class_type = mdp.commands.StairsPathCommand
+        self.commands.path_tracking.class_type = mdp.commands.PlannerPathCommand
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["stairs_up"]
 
         # Stairs-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 80
-        self.commands.path_tracking.ranges.num_lookahead_waypoints = 20
+        self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.stairs_params.stairs_len = 2.5
         self.commands.path_tracking.stairs_params.step_length = 0.25
         self.commands.path_tracking.stairs_params.step_height = 0.07

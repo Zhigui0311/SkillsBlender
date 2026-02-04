@@ -260,6 +260,7 @@ class CommandsCfg:
     
     
     path_tracking = mdp.commands.PathCommandCfg(
+        class_type=mdp.commands.PlannerPathCommand,
         asset_name="robot",
         resampling_time_range=(3.0, 15.0), # resample every 10-15s
         
@@ -272,8 +273,8 @@ class CommandsCfg:
             end_heading=(0, math.pi),
         ),
         ranges=mdp.commands.PathCommandCfg.Ranges(
-            num_waypoints=100,
-            num_lookahead_waypoints=6,
+            num_waypoints=80,
+            num_lookahead_waypoints=24,
             waypoint_reach_threshold=0.8,
             default_path_len=5.0,
         ),
@@ -676,6 +677,10 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
+
+        # Ensure command class_type is set (may be MISSING during config validation)
+        if getattr(self.commands.path_tracking, "class_type", None) in (None, MISSING):
+            self.commands.path_tracking.class_type = mdp.commands.PlannerPathCommand
 
         self.sim.dt = 0.005 # 200Hz Simulation frequency
         self.decimation = 4 # 50Hz control frequency

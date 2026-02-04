@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 import torch
+import torch.nn.functional as F
 from typing import Dict, List, Optional, Tuple
 
 from skillsblender.tasks.path.mdp.commands.path_command_cfg import PathGeneratorCfg
@@ -70,6 +71,7 @@ class TerrainAwarePathGenerator:
         start_yaw: torch.Tensor,
         env_bounds: torch.Tensor,
         terrain_data: Optional[Dict[str, torch.Tensor]] = None,
+        path_length: Optional[torch.Tensor] = None,
     ) -> PathResult:
         """生成单技能路径
 
@@ -90,7 +92,10 @@ class TerrainAwarePathGenerator:
         device = start_pos.device
 
         # 1. 计算最大路径长度（环境边界约束）
-        max_length = self.compute_max_path_length(start_pos, start_yaw, env_bounds)
+        if path_length is None:
+            max_length = self.compute_max_path_length(start_pos, start_yaw, env_bounds)
+        else:
+            max_length = path_length.to(start_pos.device)
 
         # 2. 获取技能路径规划器
         if skill_name not in self.skill_planners:
@@ -140,6 +145,7 @@ class TerrainAwarePathGenerator:
         start_yaw: torch.Tensor,
         env_bounds: torch.Tensor,
         terrain_data: Optional[Dict[str, torch.Tensor]] = None,
+        path_length: Optional[torch.Tensor] = None,
     ) -> PathResult:
         """生成多技能序列路径
 
@@ -158,7 +164,10 @@ class TerrainAwarePathGenerator:
         device = start_pos.device
 
         # 1. 计算总的最大路径长度
-        max_total_length = self.compute_max_path_length(start_pos, start_yaw, env_bounds)
+        if path_length is None:
+            max_total_length = self.compute_max_path_length(start_pos, start_yaw, env_bounds)
+        else:
+            max_total_length = path_length.to(start_pos.device)
 
         # 2. 为每个技能分配长度（均匀分配）
         num_skills = len(skill_sequence)
@@ -314,29 +323,33 @@ class TerrainAwarePathGenerator:
             interpolated_waypoints: shape (N, num_waypoints, 3)
             interpolated_headings: shape (N, num_waypoints)
         """
-        N, W_in, _ = waypoints.shape
-        device = waypoints.device
+        # Waypoints: (N, W_in, 3) -> (N, 3, W_in)
+        waypoints_t = waypoints.transpose(1, 2)
+        interpolated_waypoints = F.interpolate(
+            waypoints_t, size=num_waypoints, mode="linear", align_corners=True
+        ).transpose(1, 2)
 
-        # 输入索引（0 到 W_in-1）
-        input_indices = torch.linspace(0, W_in - 1, W_in, device=device)
+        # Headings: fallback from input (unit-circle interpolation)
+        heading_vec = torch.stack([torch.cos(headings), torch.sin(headings)], dim=1)  # (N, 2, W_in)
+        heading_vec_i = F.interpolate(
+            heading_vec, size=num_waypoints, mode="linear", align_corners=True
+        )
+        fallback_headings = torch.atan2(heading_vec_i[:, 1], heading_vec_i[:, 0])  # (N, W)
 
-        # 输出索引（0 到 W_in-1，均匀分布 num_waypoints 个点）
-        output_indices = torch.linspace(0, W_in - 1, num_waypoints, device=device)
+        # Headings: derive from waypoint direction (auto-follow path)
+        if num_waypoints <= 1:
+            return interpolated_waypoints, fallback_headings[:, :1]
 
-        # 线性插值
-        interpolated_waypoints = torch.zeros(N, num_waypoints, 3, device=device)
-        interpolated_headings = torch.zeros(N, num_waypoints, device=device)
+        diff = interpolated_waypoints[:, 1:, :2] - interpolated_waypoints[:, :-1, :2]  # (N, W-1, 2)
+        heading_dir = torch.atan2(diff[..., 1], diff[..., 0])  # (N, W-1)
+        last = heading_dir[:, -1:]
+        interpolated_headings = torch.cat([heading_dir, last], dim=1)  # (N, W)
 
-        for i in range(N):
-            # 插值位置 (x, y, z)
-            interpolated_waypoints[i, :, 0] = torch.interp(output_indices, input_indices, waypoints[i, :, 0])
-            interpolated_waypoints[i, :, 1] = torch.interp(output_indices, input_indices, waypoints[i, :, 1])
-            interpolated_waypoints[i, :, 2] = torch.interp(output_indices, input_indices, waypoints[i, :, 2])
-
-            # 插值航向（需要处理角度环绕）
-            interpolated_headings[i, :] = self._interpolate_angles(
-                output_indices, input_indices, headings[i, :]
-            )
+        # If movement is too small, fall back to input headings to avoid NaNs/jitter
+        dist = torch.linalg.norm(diff, dim=-1)  # (N, W-1)
+        moving = dist > 1e-4
+        moving = torch.cat([moving, moving[:, -1:]], dim=1)
+        interpolated_headings = torch.where(moving, interpolated_headings, fallback_headings)
 
         return interpolated_waypoints, interpolated_headings
 
@@ -347,14 +360,9 @@ class TerrainAwarePathGenerator:
         angles: torch.Tensor,
     ) -> torch.Tensor:
         """插值角度（处理环绕）"""
-        # 将角度转换为复数表示
-        complex_angles = torch.complex(torch.cos(angles), torch.sin(angles))
-
-        # 插值实部和虚部
-        real_interp = torch.interp(output_indices, input_indices, complex_angles.real)
-        imag_interp = torch.interp(output_indices, input_indices, complex_angles.imag)
-
-        # 转换回角度
-        interpolated_angles = torch.atan2(imag_interp, real_interp)
-
-        return interpolated_angles
+        # Deprecated: kept for compatibility; prefer _interpolate_waypoints path.
+        complex_angles = torch.stack([torch.cos(angles), torch.sin(angles)], dim=0).unsqueeze(0)
+        complex_interp = F.interpolate(
+            complex_angles, size=output_indices.numel(), mode="linear", align_corners=True
+        ).squeeze(0)
+        return torch.atan2(complex_interp[1], complex_interp[0])

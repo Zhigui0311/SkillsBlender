@@ -219,10 +219,11 @@ class CommandsCfg:
     """Commands specification for the MDP."""
     
     
-    path_tracking = mdp.commands.JumpPathCommandCfg(
+    path_tracking = mdp.commands.PathCommandCfg(
+        class_type=mdp.commands.PlannerPathCommand,
         asset_name="robot",
         resampling_time_range=(3.0, 15.0), # resample every 10-15s
-        jump_params=mdp.commands.JumpPathCommandCfg.JumpParams(
+        jump_params=mdp.commands.PathCommandCfg.JumpParams(
             jump_height=0.35,  # Fixed height override
             gap_threshold=-0.4,
             scan_dist=6.0,
@@ -230,9 +231,9 @@ class CommandsCfg:
             takeoff_margin=0.2,
             landing_margin=0.3,
         ),
-        ranges=mdp.commands.JumpPathCommandCfg.Ranges(
-            num_waypoints=100,
-            num_lookahead_waypoints=6,
+        ranges=mdp.commands.PathCommandCfg.Ranges(
+            num_waypoints=80,
+            num_lookahead_waypoints=24,
             waypoint_reach_threshold=0.8,
             default_path_len=5.0,
         ),
@@ -665,7 +666,7 @@ class TerminationsCfg:
 
 # -- Environment Configuration 
 @configclass
-class JumpPathEnvCfg(ManagerBasedRLEnvCfg):
+class JumpPathEnvCfg(PathEnvCfg):
     """
     Jump terrain environment configuration for robot learning to jump over gaps.
 
@@ -690,6 +691,11 @@ class JumpPathEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
+
+        # Ensure command class_type is set (may be MISSING during config validation)
+        if getattr(self.commands.path_tracking, "class_type", None) in (None, MISSING):
+            self.commands.path_tracking.class_type = mdp.commands.PlannerPathCommand
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["jump"]
 
         self.sim.dt = 0.005 # 200Hz Simulation frequency
         self.decimation = 4 # 50Hz control frequency

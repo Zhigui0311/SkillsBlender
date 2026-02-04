@@ -22,15 +22,7 @@ class FlatPathCommand(SegmentPathCommand):
     def _resample_command(self, env_ids: torch.Tensor):
         self._set_planned_frame_from_robot(env_ids)
 
-        # allow legacy inpoints range to override default length
-        if hasattr(self.cfg, "inpoints") and self.cfg.inpoints is not None:
-            len_min, len_max, _ = self.cfg.inpoints.end_to_start_pos
-            if float(len_min) == float(len_max):
-                total_len = torch.full((len(env_ids),), float(len_max), device=self.device)
-            else:
-                total_len = torch.empty(len(env_ids), device=self.device).uniform_(float(len_min), float(len_max))
-        else:
-            total_len = torch.full((len(env_ids),), float(self.cfg.ranges.default_path_len), device=self.device)
+        total_len = torch.full((len(env_ids),), float(self.cfg.ranges.default_path_len), device=self.device)
         self._path_len[env_ids] = total_len
 
         start = self._planned_start_pos[env_ids].clone()

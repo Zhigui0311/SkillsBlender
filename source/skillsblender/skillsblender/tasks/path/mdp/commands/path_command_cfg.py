@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Tuple, Literal, List
-from dataclasses import field
+from dataclasses import MISSING, field
 
 from isaaclab.managers import CommandTermCfg
 from isaaclab.utils import configclass
@@ -102,7 +102,7 @@ class PathGeneratorCfg:
     env_bounds: EnvironmentBounds = field(default_factory=EnvironmentBounds)
 
     # 路径采样参数
-    num_waypoints: int = 64  # 路径航点数量
+    num_waypoints: int = 80  # 路径航点数量
     waypoint_spacing: float = 0.1  # 航点间距 (m)
 
     # 技能参数
@@ -121,7 +121,7 @@ class PathGeneratorCfg:
 
 @configclass
 class PathRanges:
-    num_waypoints: int = 64
+    num_waypoints: int = 80
     num_lookahead_waypoints: int = 24
     waypoint_reach_threshold: float = 0.8
 
@@ -149,11 +149,13 @@ class PathCommandCfg(CommandTermCfg):
     asset_name: str = "robot"
     debug_vis: bool = False
     ranges: PathRanges = PathRanges()
+    path_generator_cfg: PathGeneratorCfg = PathGeneratorCfg()
 
     # legacy compatibility for older configs
     inpoints: InterpolationPoints = InterpolationPoints()
 
     # per-skill config
+    walk_params: WalkParams = WalkParams()
     jump_params: JumpParams = JumpParams()
     stairs_params: StairsParams = StairsParams()
     crouch_params: CrouchParams = CrouchParams()
@@ -178,11 +180,18 @@ class PathCommandCfg(CommandTermCfg):
     """
 
     def __post_init__(self):
-        if getattr(self, "class_type", None) is None:
+        if getattr(self, "class_type", None) in (None, MISSING):
             # local import avoids circular dependency
-            from .flat_path_command import FlatPathCommand
+            from .planner_path_command import PlannerPathCommand
 
-            self.class_type = FlatPathCommand
+            self.class_type = PlannerPathCommand
+        # sync generator cfg with command cfg
+        self.path_generator_cfg.num_waypoints = self.ranges.num_waypoints
+        self.path_generator_cfg.walk_params = self.walk_params
+        self.path_generator_cfg.jump_params = self.jump_params
+        self.path_generator_cfg.stairs_params = self.stairs_params
+        self.path_generator_cfg.climb_params = self.climb_params
+        self.path_generator_cfg.crouch_params = self.crouch_params
         parent_post_init = getattr(super(), "__post_init__", None)
         if callable(parent_post_init):
             parent_post_init()
@@ -227,6 +236,8 @@ class CrouchPathCommandCfg(PathCommandCfg):
 # Backward-compatible nested names used in older configs
 PathCommandCfg.InterpolationPoints = InterpolationPoints
 PathCommandCfg.Ranges = PathRanges
+PathCommandCfg.PathGeneratorCfg = PathGeneratorCfg
+PathCommandCfg.WalkParams = WalkParams
 PathCommandCfg.JumpParams = JumpParams
 PathCommandCfg.StairsParams = StairsParams
 PathCommandCfg.ClimbParams = ClimbParams
@@ -235,4 +246,3 @@ PathCommandCfg.CrouchParams = CrouchParams
 JumpPathCommandCfg.InterpolationPoints = InterpolationPoints
 JumpPathCommandCfg.Ranges = PathRanges
 JumpPathCommandCfg.JumpParams = JumpParams
-

@@ -68,9 +68,10 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         self.rewards.undesired_contacts.params["threshold"] = 1.0
         
         # 命令参数调整
-        self.commands.path_tracking.ranges.num_waypoints = 100
-        self.commands.path_tracking.ranges.num_lookahead_waypoints = 5
+        self.commands.path_tracking.ranges.num_waypoints = 80
+        self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.jump_params.jump_height = 0.45
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["jump"]
         # Others
         # self.rewards.air_time_variance.weight = -4.0
         # self.rewards.feet_acc.weight = -2e-6

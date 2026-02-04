@@ -113,12 +113,13 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.scene.terrain.terrain_generator= CUR_JUMP_TERRAIN_CFG 
         
         # Command parameters adjustment
-        self.commands.path_tracking.ranges.num_waypoints = 100
+        self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.jump_params.jump_height = 0.45
-        self.commands.path_tracking.ranges.num_lookahead_waypoints = 8
+        self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.ranges.waypoint_reach_threshold = 0.6
         self.commands.path_tracking.jump_params.scan_step = 0.05
         self.commands.path_tracking.jump_params.scan_width = 0.2
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["jump"]
         
         # Configurable jump trajectory parameters
         self.commands.path_tracking.jump_params.endpoint_extension_min = 1.5

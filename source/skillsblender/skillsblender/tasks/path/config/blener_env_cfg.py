@@ -100,9 +100,16 @@ class BlenerPathEnvCfg(PathEnvCfg):
         self.scene: MyBlenerSceneCfg = MyBlenerSceneCfg(num_envs=4096, env_spacing=2.5)
 
         # Blender-specific command configuration
-        self.commands.path_tracking.ranges.num_waypoints = 100
-        self.commands.path_tracking.ranges.num_lookahead_waypoints = 20
+        self.commands.path_tracking.ranges.num_waypoints = 80
+        self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.ranges.default_path_len = 8.0  # Longer paths
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = [
+            "walk",
+            "jump",
+            "stairs_up",
+            "climb",
+            "crouch",
+        ]
 
         # Balanced rewards for all skills
         self.rewards.track_xy.weight = 6.0

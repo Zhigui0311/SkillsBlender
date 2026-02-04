@@ -56,6 +56,7 @@ class Go2CrouchEnvCfg(CrouchPathEnvCfg):
         # Command parameters
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["crouch"]
 
         if self.__class__.__name__ == "Go2CrouchEnvCfg":
             self.disable_zero_weight_rewards()

@@ -168,11 +168,11 @@ class SegmentPathCommand(CommandTerm):
     def reset(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
-        self._resample_command(env_ids)
+        return super().reset(env_ids)
 
     def update(self):
         self._update_command()
-        self._update_slice_and_meta()
+        self._update_metrics()
 
     # ----------------- planned frame -----------------
     def _set_planned_frame_from_robot(self, env_ids: torch.Tensor):
@@ -371,3 +371,7 @@ class SegmentPathCommand(CommandTerm):
 
     def _update_command(self):
         pass
+
+    def _update_metrics(self):
+        # metrics + observations are updated together for path commands
+        self._update_slice_and_meta()

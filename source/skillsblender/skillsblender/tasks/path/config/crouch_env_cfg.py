@@ -60,10 +60,11 @@ class CrouchPathEnvCfg(PathEnvCfg):
 
         # Use crouch scene
         self.scene: MyCrouchSceneCfg = MyCrouchSceneCfg(num_envs=4096, env_spacing=2.5)
-        self.commands.path_tracking.class_type = mdp.commands.CrouchPathCommand
+        self.commands.path_tracking.class_type = mdp.commands.PlannerPathCommand
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["crouch"]
 
         # Crouch-specific command configuration
-        self.commands.path_tracking.ranges.num_waypoints = 64
+        self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.crouch_params.crouch_len = 2.0
         self.commands.path_tracking.crouch_params.base_height_ref = 0.24  # Lower height

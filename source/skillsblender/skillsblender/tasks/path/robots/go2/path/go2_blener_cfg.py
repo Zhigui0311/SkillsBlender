@@ -68,8 +68,15 @@ class Go2BlenerEnvCfg(BlenerPathEnvCfg):
         self.rewards.undesired_contacts.params["threshold"] = 1.0
 
         # Command parameters
-        self.commands.path_tracking.ranges.num_waypoints = 120
-        self.commands.path_tracking.ranges.num_lookahead_waypoints = 20
+        self.commands.path_tracking.ranges.num_waypoints = 80
+        self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = [
+            "walk",
+            "jump",
+            "stairs_up",
+            "climb",
+            "crouch",
+        ]
 
         if self.__class__.__name__ == "Go2BlenerEnvCfg":
             self.disable_zero_weight_rewards()
