@@ -175,21 +175,32 @@ class JumpPathPlanner(SkillPathPlanner):
 
         # 2. 计算跳跃参数
         gap_w = (gap_s1 - gap_s0).clamp(min=0.0)
-        takeoff = torch.clamp(
-            0.2 + 0.4 * gap_w,
-            min=self.cfg.takeoff_margin_min,
-            max=self.cfg.takeoff_margin_max,
-        )
-        landing = torch.clamp(
-            0.25 + 0.3 * gap_w,
-            min=self.cfg.landing_margin_min,
-            max=self.cfg.landing_margin_max,
-        )
-        jump_height = torch.clamp(
-            0.3 + 0.6 * gap_w,
-            min=self.cfg.jump_height_min,
-            max=self.cfg.jump_height_max,
-        )
+        if self.cfg.takeoff_margin is None:
+            takeoff = torch.clamp(
+                0.2 + 0.4 * gap_w,
+                min=self.cfg.takeoff_margin_min,
+                max=self.cfg.takeoff_margin_max,
+            )
+        else:
+            takeoff = torch.full_like(gap_w, float(self.cfg.takeoff_margin))
+
+        if self.cfg.landing_margin is None:
+            landing = torch.clamp(
+                0.25 + 0.3 * gap_w,
+                min=self.cfg.landing_margin_min,
+                max=self.cfg.landing_margin_max,
+            )
+        else:
+            landing = torch.full_like(gap_w, float(self.cfg.landing_margin))
+
+        if self.cfg.jump_height is None:
+            jump_height = torch.clamp(
+                0.3 + 0.6 * gap_w,
+                min=self.cfg.jump_height_min,
+                max=self.cfg.jump_height_max,
+            )
+        else:
+            jump_height = torch.full_like(gap_w, float(self.cfg.jump_height))
 
         jump_s0 = torch.where(has_gap, gap_s0 - takeoff, torch.zeros_like(gap_s0))
         jump_s1 = torch.where(has_gap, gap_s1 + landing, segment_length)

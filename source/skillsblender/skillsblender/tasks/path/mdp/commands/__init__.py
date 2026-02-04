@@ -1,3 +1,15 @@
-from .path_command_cfg import PathCommandCfg, JumpPathCommandCfg
-from .flat_path_command import PathCommand
+from .path_command_cfg import (
+    PathCommandCfg,
+    JumpPathCommandCfg,
+    StairsPathCommandCfg,
+    ClimbPathCommandCfg,
+    CrouchPathCommandCfg,
+)
+from .flat_path_command import FlatPathCommand
 from .jump_path_command import JumpPathCommand
+from .stairs_path_command import StairsPathCommand
+from .climb_path_command import ClimbPathCommand
+from .crouch_path_command import CrouchPathCommand
+
+# Backward-compatible alias
+PathCommand = FlatPathCommand

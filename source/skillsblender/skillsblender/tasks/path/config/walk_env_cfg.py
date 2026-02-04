@@ -69,7 +69,7 @@ class WalkPathEnvCfg(PathEnvCfg):
         # Walk-specific rewards
         self.rewards.track_xy.weight = 5.0
         self.rewards.track_yaw.weight = 2.0
-        self.rewards.track_velocity.weight = 3.0
+        self.rewards.track_velocity_along_path_exp.weight = 3.0
 
         # Base stability rewards
         self.rewards.flat_orientation.weight = -1.0

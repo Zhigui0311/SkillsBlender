@@ -6,6 +6,7 @@ from isaaclab.utils import configclass
 import skillsblender.tasks.path.mdp as mdp
 
 
+@configclass
 class Go2StairsEnvCfg(StairsPathEnvCfg):
     """Unitree Go2 stairs skill training configuration."""
 
@@ -27,7 +28,7 @@ class Go2StairsEnvCfg(StairsPathEnvCfg):
         # Task rewards
         self.rewards.track_xy.weight = 7.0
         self.rewards.track_yaw.weight = 3.0
-        self.rewards.track_velocity.weight = 3.0
+        self.rewards.track_velocity_along_path_exp.weight = 3.0
 
         # Base stability
         self.rewards.flat_orientation.weight = -1.0
@@ -62,6 +63,7 @@ class Go2StairsEnvCfg(StairsPathEnvCfg):
             self.disable_zero_weight_rewards()
 
 
+@configclass
 class Go2StairsEnvCfg_PLAY(Go2StairsEnvCfg):
     """Unitree Go2 stairs PLAY configuration."""
 

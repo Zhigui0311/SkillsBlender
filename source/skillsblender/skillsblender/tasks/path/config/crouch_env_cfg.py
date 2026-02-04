@@ -60,6 +60,7 @@ class CrouchPathEnvCfg(PathEnvCfg):
 
         # Use crouch scene
         self.scene: MyCrouchSceneCfg = MyCrouchSceneCfg(num_envs=4096, env_spacing=2.5)
+        self.commands.path_tracking.class_type = mdp.commands.CrouchPathCommand
 
         # Crouch-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 64
@@ -70,7 +71,7 @@ class CrouchPathEnvCfg(PathEnvCfg):
         # Crouch-specific rewards
         self.rewards.track_xy.weight = 5.0
         self.rewards.track_yaw.weight = 2.0
-        self.rewards.track_velocity.weight = 2.0  # Slower speed
+        self.rewards.track_velocity_along_path_exp.weight = 2.0  # Slower speed
 
         # Low height reward (encourage crouching)
         self.rewards.base_height_l2.weight = -2.0

@@ -222,19 +222,19 @@ class CommandsCfg:
     path_tracking = mdp.commands.JumpPathCommandCfg(
         asset_name="robot",
         resampling_time_range=(3.0, 15.0), # resample every 10-15s
-        
         jump_params=mdp.commands.JumpPathCommandCfg.JumpParams(
-            jump_height=0.35,           # Max height of the parabolic arc
-            gap_threshold = -0.4 ,         # Height drop to identify a gap (meters)
-            scan_dist= 6.0,          # How far to look ahead for gaps
-            scan_step = 0.1,            # Resolution of terrain scanning
-            takeoff_margin= 0.2,       # Distance before gap to start arc
-            landing_margin = 0.3, 
+            jump_height=0.35,  # Fixed height override
+            gap_threshold=-0.4,
+            scan_dist=6.0,
+            scan_step=0.1,
+            takeoff_margin=0.2,
+            landing_margin=0.3,
         ),
         ranges=mdp.commands.JumpPathCommandCfg.Ranges(
-            num_waypoints=100,           
-            num_lookahead_waypoints=6,  
+            num_waypoints=100,
+            num_lookahead_waypoints=6,
             waypoint_reach_threshold=0.8,
+            default_path_len=5.0,
         ),
         debug_vis=True, 
     )
@@ -243,7 +243,7 @@ class CommandsCfg:
 @configclass
 class ActionsCfg:
     """Actions specification for the MDP."""
-    joint_pos_actoion = mdp.JointPositionActionCfg(
+    joint_pos_action = mdp.JointPositionActionCfg(
         asset_name="robot", 
         joint_names=GO2_JOINT_NAMES,  
         # joint_names=[".*"], 

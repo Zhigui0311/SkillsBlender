@@ -1,8 +1,9 @@
 from __future__ import annotations
 from typing import Tuple, Literal, List
-from isaaclab.utils import configclass
 from dataclasses import field
+
 from isaaclab.managers import CommandTermCfg
+from isaaclab.utils import configclass
 from isaaclab.markers import VisualizationMarkersCfg
 from skillsblender.tasks.path.config import WAYPOINTS_MARKER_CFG, START_SPHERE_MARKER_CFG, GOAL_SPHERE_MARKER_CFG
 
@@ -13,6 +14,11 @@ class JumpParams:
     scan_step: float = 0.1
     scan_width: float = 0.6
     gap_threshold: float = -0.15  # height drop threshold (m)
+
+    # optional fixed params (when provided, override min/max logic)
+    takeoff_margin: float | None = None
+    landing_margin: float | None = None
+    jump_height: float | None = None
 
     # used when scanner is absent
     takeoff_margin_min: float = 0.2
@@ -77,6 +83,18 @@ class ValidationParams:
     max_descent_angle: float = 0.6  # 最大下降角度 (rad)
     min_segment_length: float = 0.5  # 最小 segment 长度 (m)
 
+
+@configclass
+class InterpolationPoints:
+    """Legacy path interpolation inputs (kept for backward compatibility)."""
+    path_type: str = "linear"
+    height_change: bool = False
+    # interpreted as (min_len, max_len, z_offset); only len range used in current commands
+    end_to_start_pos: Tuple[float, float, float] = (5.0, 5.0, 0.0)
+    yaw_type: str = "along_path"
+    start_heading: Tuple[float, float] = (0.0, 0.0)
+    end_heading: Tuple[float, float] = (0.0, 0.0)
+
 @configclass
 class PathGeneratorCfg:
     """路径生成器配置"""
@@ -117,7 +135,7 @@ class PathRanges:
 
     # segment-table sizing
     max_segments: int = 8
-    num_skills: int = 8  # keep in sync with PathCommand skill ids
+    num_skills: int = 7  # keep in sync with PathCommand skill ids
 
     # segment param vector (shared across skills)
     num_seg_params: int = 6
@@ -127,10 +145,13 @@ class PathRanges:
     
 
 @configclass
-class PathCommandCfg:
+class PathCommandCfg(CommandTermCfg):
     asset_name: str = "robot"
     debug_vis: bool = False
     ranges: PathRanges = PathRanges()
+
+    # legacy compatibility for older configs
+    inpoints: InterpolationPoints = InterpolationPoints()
 
     # per-skill config
     jump_params: JumpParams = JumpParams()
@@ -156,4 +177,62 @@ class PathCommandCfg:
     """The configuration for the path goal visualization marker. Defaults to GOAL_SPHERE_MARKER_CFG.
     """
 
+    def __post_init__(self):
+        if getattr(self, "class_type", None) is None:
+            # local import avoids circular dependency
+            from .flat_path_command import FlatPathCommand
+
+            self.class_type = FlatPathCommand
+        parent_post_init = getattr(super(), "__post_init__", None)
+        if callable(parent_post_init):
+            parent_post_init()
+
+
+@configclass
+class JumpPathCommandCfg(PathCommandCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        from .jump_path_command import JumpPathCommand
+
+        self.class_type = JumpPathCommand
+
+
+@configclass
+class StairsPathCommandCfg(PathCommandCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        from .stairs_path_command import StairsPathCommand
+
+        self.class_type = StairsPathCommand
+
+
+@configclass
+class ClimbPathCommandCfg(PathCommandCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        from .climb_path_command import ClimbPathCommand
+
+        self.class_type = ClimbPathCommand
+
+
+@configclass
+class CrouchPathCommandCfg(PathCommandCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        from .crouch_path_command import CrouchPathCommand
+
+        self.class_type = CrouchPathCommand
+
+
+# Backward-compatible nested names used in older configs
+PathCommandCfg.InterpolationPoints = InterpolationPoints
+PathCommandCfg.Ranges = PathRanges
+PathCommandCfg.JumpParams = JumpParams
+PathCommandCfg.StairsParams = StairsParams
+PathCommandCfg.ClimbParams = ClimbParams
+PathCommandCfg.CrouchParams = CrouchParams
+
+JumpPathCommandCfg.InterpolationPoints = InterpolationPoints
+JumpPathCommandCfg.Ranges = PathRanges
+JumpPathCommandCfg.JumpParams = JumpParams
 

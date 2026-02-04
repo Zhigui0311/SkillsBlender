@@ -267,15 +267,15 @@ class CommandsCfg:
             path_type="linear",
             height_change=False,
             end_to_start_pos=(2.5, 6.0, 0), # 终点范围
-            yaw_type="along_path",       
-            start_heading=(-math.pi, 0), 
-            end_heading=(0, math.pi),   
+            yaw_type="along_path",
+            start_heading=(-math.pi, 0),
+            end_heading=(0, math.pi),
         ),
-        
         ranges=mdp.commands.PathCommandCfg.Ranges(
-            num_waypoints=100,           
-            num_lookahead_waypoints=6,  
+            num_waypoints=100,
+            num_lookahead_waypoints=6,
             waypoint_reach_threshold=0.8,
+            default_path_len=5.0,
         ),
         debug_vis=True, 
     )
@@ -284,7 +284,7 @@ class CommandsCfg:
 @configclass
 class ActionsCfg:
     """Actions specification for the MDP."""
-    joint_pos_actoion = mdp.JointPositionActionCfg(
+    joint_pos_action = mdp.JointPositionActionCfg(
         asset_name="robot", joint_names=GO2_JOINT_NAMES, scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)}
     )
 
@@ -427,6 +427,12 @@ class RewardsCfg:
         func=mdp.track_path_heading_exp,
         weight=2.0,
         params={"std": 0.5, "command_name": "path_tracking"}
+    )
+
+    track_velocity_along_path_exp = RewTerm(
+        func=mdp.track_velocity_along_path_exp,
+        weight=0.0,
+        params={"std": 0.6, "command_name": "path_tracking", "desired_speed": 1.0},
     )
 
     stalling_penalty = RewTerm(

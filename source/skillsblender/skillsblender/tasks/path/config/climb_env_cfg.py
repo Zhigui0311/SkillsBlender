@@ -67,6 +67,7 @@ class ClimbPathEnvCfg(PathEnvCfg):
 
         # Use climb scene
         self.scene: MyClimbSceneCfg = MyClimbSceneCfg(num_envs=4096, env_spacing=2.5)
+        self.commands.path_tracking.class_type = mdp.commands.ClimbPathCommand
 
         # Climb-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 64
@@ -77,10 +78,10 @@ class ClimbPathEnvCfg(PathEnvCfg):
         # Climb-specific rewards
         self.rewards.track_xy.weight = 5.0
         self.rewards.track_yaw.weight = 2.0
-        self.rewards.track_velocity.weight = 3.0
+        self.rewards.track_velocity_along_path_exp.weight = 3.0
 
         # Forward progress reward
-        self.rewards.track_velocity.weight = 4.0
+        self.rewards.track_velocity_along_path_exp.weight = 4.0
 
         # Stability on slopes
         self.rewards.flat_orientation.weight = -1.5

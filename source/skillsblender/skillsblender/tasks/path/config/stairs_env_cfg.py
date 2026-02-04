@@ -71,6 +71,7 @@ class StairsPathEnvCfg(PathEnvCfg):
 
         # Use stairs scene
         self.scene: MyStairsSceneCfg = MyStairsSceneCfg(num_envs=4096, env_spacing=2.5)
+        self.commands.path_tracking.class_type = mdp.commands.StairsPathCommand
 
         # Stairs-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 80
@@ -82,7 +83,7 @@ class StairsPathEnvCfg(PathEnvCfg):
         # Stairs-specific rewards
         self.rewards.track_xy.weight = 6.0
         self.rewards.track_yaw.weight = 3.0
-        self.rewards.track_velocity.weight = 2.0
+        self.rewards.track_velocity_along_path_exp.weight = 2.0
 
         # Clearance reward for lifting feet
         self.rewards.feet_air_time.weight = 2.0

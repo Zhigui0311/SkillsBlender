@@ -110,10 +110,23 @@ class JumpPathCommand(SegmentPathCommand):
 
         # margins & arc parameters
         gap_w = (gap_s1 - gap_s0).clamp(min=0.0)
-        takeoff = torch.clamp(0.2 + 0.4 * gap_w, min=self.cfg.jump_params.takeoff_margin_min, max=self.cfg.jump_params.takeoff_margin_max)
-        landing = torch.clamp(0.25 + 0.3 * gap_w, min=self.cfg.jump_params.landing_margin_min, max=self.cfg.jump_params.landing_margin_max)
-        extension = torch.clamp(1.0 + 0.5 * gap_w, min=self.cfg.jump_params.endpoint_extension_min, max=self.cfg.jump_params.endpoint_extension_max)
-        jump_h = torch.clamp(0.3 + 0.6 * gap_w, min=self.cfg.jump_params.jump_height_min, max=self.cfg.jump_params.jump_height_max)
+        jp = self.cfg.jump_params
+        if jp.takeoff_margin is None:
+            takeoff = torch.clamp(0.2 + 0.4 * gap_w, min=jp.takeoff_margin_min, max=jp.takeoff_margin_max)
+        else:
+            takeoff = torch.full_like(gap_w, float(jp.takeoff_margin))
+
+        if jp.landing_margin is None:
+            landing = torch.clamp(0.25 + 0.3 * gap_w, min=jp.landing_margin_min, max=jp.landing_margin_max)
+        else:
+            landing = torch.full_like(gap_w, float(jp.landing_margin))
+
+        extension = torch.clamp(1.0 + 0.5 * gap_w, min=jp.endpoint_extension_min, max=jp.endpoint_extension_max)
+
+        if jp.jump_height is None:
+            jump_h = torch.clamp(0.3 + 0.6 * gap_w, min=jp.jump_height_min, max=jp.jump_height_max)
+        else:
+            jump_h = torch.full_like(gap_w, float(jp.jump_height))
 
         jump_s0 = torch.where(has_gap, gap_s0 - takeoff, gap_s0)
         jump_s1 = torch.where(has_gap, gap_s1 + landing, gap_s1)

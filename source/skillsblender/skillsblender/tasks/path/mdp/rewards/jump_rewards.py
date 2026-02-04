@@ -3,14 +3,13 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
-from isaaclab.assets import Articulation, RigidObject  
+from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers.manager_base import ManagerTermBase
 from isaaclab.managers.manager_term_cfg import RewardTermCfg
-from isaaclab.sensors import ContactSensor, RayCaster
+from isaaclab.sensors import ContactSensor
 
 from isaaclab.utils.math import wrap_to_pi
-import isaaclab.utils.warp as warp_utils
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -29,17 +28,19 @@ def jump_height_tracking(
     command = env.command_manager.get_term(command_name)
 
     # 获取目标高度和当前高度
-    target_pos_w = command.command[:, 2::4]  # 提取所有航点的Z坐标
-    robot_pos_w = env.scene["robot"].data.root_pos_w[:, 2]  # 当前Z坐标
-
-    # 使用最近航点的高度作为目标
-    target_height = target_pos_w[:, 0]
+    env_ids = torch.arange(env.num_envs, device=env.device)
+    idx = torch.clamp(command.current_waypoints_index, max=command.num_waypoints - 1)
+    target_height = command.pos_path_w[env_ids, idx, 2]
+    robot_pos_w = env.scene["robot"].data.root_pos_w[:, 2]
 
     # 计算高度误差
     height_error = torch.abs(robot_pos_w - target_height)
 
     # 使用指数核奖励高度跟踪
     reward = torch.exp(-torch.square(height_error) / (height_tolerance ** 2))
+
+    if hasattr(command, "is_in_jump_phase"):
+        reward = torch.where(command.is_in_jump_phase, reward, torch.zeros_like(reward))
 
     return reward
 
@@ -60,42 +61,29 @@ def jump_clearance_reward(
     base_height = robot_pos[:, 2]
     robot_xy = robot_pos[:, :2]
 
-    # 获取 JumpPathCommand 以访问 warp_mesh
+    # 获取 JumpPathCommand 以访问 height_scanner（如果有）
     command = env.command_manager.get_term(command_name)
+    if not hasattr(command, "height_scanner") or command.height_scanner is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    if not hasattr(command.height_scanner, "data"):
+        return torch.zeros(env.num_envs, device=env.device)
 
-    # 使用 raycast 查询机器人下方的地面高度
-    # 从机器人位置上方 10m 处向下发射射线
-    ray_starts = torch.cat([
-        robot_xy,
-        base_height.unsqueeze(-1) + 10.0  # 从base上方10m处开始
-    ], dim=-1)
-
-    ray_directions = torch.tensor(
-        [[0.0, 0.0, -1.0]],
-        device=robot_xy.device
-    ).expand(len(robot_xy), -1)
-
-    # 执行 raycast
-    ray_hits, _, _, _ = warp_utils.raycast_mesh(
-        ray_starts=ray_starts,
-        ray_directions=ray_directions,
-        mesh=command.warp_mesh,
-        max_dist=20.0
-    )
-
-    # 提取地面高度（Z坐标）
-    # 如果射线未命中（返回inf），使用base_height作为fallback
-    ground_height = torch.where(
-        torch.isinf(ray_hits[:, 2]),
-        base_height,  # Fallback
-        ray_hits[:, 2]
-    )
+    ray_hits_w = command.height_scanner.data.ray_hits_w  # (N, R, 3)
+    deltas = ray_hits_w[..., :2] - robot_xy[:, None, :]
+    dist = torch.norm(deltas, dim=-1)
+    min_idx = torch.argmin(dist, dim=1)
+    env_ids = torch.arange(env.num_envs, device=env.device)
+    ground_height = ray_hits_w[env_ids, min_idx, 2]
+    ground_height = torch.where(torch.isfinite(ground_height), ground_height, base_height)
 
     # 计算离地间隙
     clearance = base_height - ground_height
 
     # 只有当离地间隙超过最小值时才给予奖励
     reward = torch.clamp((clearance - min_clearance) / min_clearance, min=0.0, max=1.0)
+
+    if hasattr(command, "is_in_jump_phase"):
+        reward = torch.where(command.is_in_jump_phase, reward, torch.zeros_like(reward))
 
     return reward
 
@@ -344,4 +332,3 @@ def consistency_reward(
     reward = maintains_velocity.float()
 
     return reward
-

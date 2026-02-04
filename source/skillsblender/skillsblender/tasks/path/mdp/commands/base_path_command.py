@@ -32,6 +32,13 @@ class SegmentPathCommand(CommandTerm):
     ]
     SKILL_ID = {name: i for i, name in enumerate(SKILL_NAMES)}
     NUM_SKILLS = len(SKILL_NAMES)
+    SKILL_WALK = SKILL_ID["walk"]
+    SKILL_JUMP = SKILL_ID["jump"]
+    SKILL_STAIRS_UP = SKILL_ID["stairs_up"]
+    SKILL_STAIRS_DOWN = SKILL_ID["stairs_down"]
+    SKILL_CROUCH = SKILL_ID["crouch"]
+    SKILL_SIDESTEP = SKILL_ID["sidestep"]
+    SKILL_CLIMB = SKILL_ID["climb"]
 
     # -------- segment parameter slots (single source of truth) --------
     SEG_PARAM = {
@@ -114,6 +121,28 @@ class SegmentPathCommand(CommandTerm):
         """Path progress alpha in [0,1], compat with older code: (N,1)."""
         a = self.t_alpha[self.current_waypoints_index].unsqueeze(-1)
         return a
+
+    # ----------------- legacy compat properties -----------------
+    @property
+    def robot_pos_w(self) -> torch.Tensor:
+        return self.robot.data.root_pos_w[:, :3]
+
+    @property
+    def robot_velocity_w(self) -> torch.Tensor:
+        return self.robot.data.root_lin_vel_w[:, :3]
+
+    @property
+    def target_pos_w(self) -> torch.Tensor:
+        # use final goal for legacy reward gating
+        return self.pos_path_w[:, -1, :]
+
+    @property
+    def target_heading_b(self) -> torch.Tensor:
+        # heading error to final goal heading, in body frame
+        quat = self.robot.data.root_quat_w
+        _, _, robot_yaw = euler_xyz_from_quat(quat)
+        target_yaw = self.heading_path_w[:, -1, 0]
+        return wrap_to_pi(target_yaw - robot_yaw)
 
     # ----------------- exposed command -----------------
     def _meta_dim(self) -> int:

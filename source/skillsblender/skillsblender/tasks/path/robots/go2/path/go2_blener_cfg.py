@@ -6,6 +6,7 @@ from isaaclab.utils import configclass
 import skillsblender.tasks.path.mdp as mdp
 
 
+@configclass
 class Go2BlenerEnvCfg(BlenerPathEnvCfg):
     """Unitree Go2 multi-skill blender training configuration."""
 
@@ -27,7 +28,7 @@ class Go2BlenerEnvCfg(BlenerPathEnvCfg):
         # Task rewards (balanced for all skills)
         self.rewards.track_xy.weight = 7.0
         self.rewards.track_yaw.weight = 3.5
-        self.rewards.track_velocity.weight = 4.5
+        self.rewards.track_velocity_along_path_exp.weight = 4.5
 
         # Base stability (important for skill transitions)
         self.rewards.flat_orientation.weight = -1.0
@@ -74,6 +75,7 @@ class Go2BlenerEnvCfg(BlenerPathEnvCfg):
             self.disable_zero_weight_rewards()
 
 
+@configclass
 class Go2BlenerEnvCfg_PLAY(Go2BlenerEnvCfg):
     """Unitree Go2 blender PLAY configuration."""
 

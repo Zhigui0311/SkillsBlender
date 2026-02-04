@@ -18,12 +18,13 @@ class Go2PathEnvCfg(PathEnvCfg):
         self.observations.policy.base_ang_vel.scale = 0.2
         self.observations.policy.joint_pos.scale = 1.0
         self.observations.policy.joint_vel.scale = 0.05
-        self.actions.joint_pos_actoion.scale = 0.2
+        self.actions.joint_pos_action.scale = 0.2
   
         # joint的关节尺度 关节限位
         
         #版本1
         self.commands.path_tracking.inpoints.end_to_start_pos = (4.0, 5.0, 0.0)
+        self.commands.path_tracking.ranges.default_path_len = 5.0
         self.commands.path_tracking.ranges.num_waypoints = 100
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 5
         self.commands.path_tracking.inpoints.yaw_type = 'decoupled'

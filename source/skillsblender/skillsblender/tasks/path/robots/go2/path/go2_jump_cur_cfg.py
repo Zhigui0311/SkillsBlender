@@ -121,11 +121,10 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.jump_params.scan_width = 0.2
         
         # Configurable jump trajectory parameters
-        self.commands.path_tracking.jump_params.gap_width_threshold = 0.55
-        self.commands.path_tracking.jump_params.narrow_gap_endpoint_extension = 1.5
-        self.commands.path_tracking.jump_params.wide_gap_endpoint_extension = 2.0
-        self.commands.path_tracking.jump_params.narrow_gap_takeoff_margin = 0.4
-        self.commands.path_tracking.jump_params.wide_gap_takeoff_margin = 0.5
+        self.commands.path_tracking.jump_params.endpoint_extension_min = 1.5
+        self.commands.path_tracking.jump_params.endpoint_extension_max = 2.0
+        self.commands.path_tracking.jump_params.takeoff_margin_min = 0.4
+        self.commands.path_tracking.jump_params.takeoff_margin_max = 0.5
         self.commands.path_tracking.jump_params.landing_margin = 0.5
         self.commands.path_tracking.jump_params.post_jump_distance = 0.0  # 0 = stop at landing
         self.commands.path_tracking.jump_params.heading_offset_range = (0.0, 0.0)

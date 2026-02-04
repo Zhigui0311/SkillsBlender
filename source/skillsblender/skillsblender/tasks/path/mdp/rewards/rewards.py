@@ -16,7 +16,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers.manager_base import ManagerTermBase
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.sensors import ContactSensor, RayCaster
-from SkillsBlender.source.skillsblender.skillsblender.tasks.path.mdp.commands.flat_path_command import PathCommand
+from skillsblender.tasks.path.mdp.commands.base_path_command import SegmentPathCommand
 
 import isaaclab.utils.math as math_utils
 import isaaclab.utils.warp as warp_utils
@@ -536,7 +536,7 @@ def feet_height_body(
     # We sum over all feet
     reward = torch.sum(foot_z_target_error * is_swing, dim=1) # (num_envs,)
     
-    command: PathCommand = env.command_manager.get_term(command_name)
+    command: SegmentPathCommand = env.command_manager.get_term(command_name)
     if jump_only and hasattr(command, "is_in_jump_phase"):
         reward = torch.where(command.is_in_jump_phase, reward, torch.zeros_like(reward))
     distance = torch.norm(command.robot_pos_w - command.target_pos_w, dim=-1)  # (num_envs,)
@@ -609,7 +609,7 @@ def track_velocity_along_path_exp(
     against the desired walking speed.
     """
     asset: RigidObject = env.scene[asset_cfg.name]
-    command: PathCommand = env.command_manager.get_term(command_name)
+    command: SegmentPathCommand = env.command_manager.get_term(command_name)
 
     # Resolve the per-environment target waypoint in world coordinates.
     env_ids = torch.arange(env.num_envs, device=env.device)
@@ -644,7 +644,7 @@ def stalling_penalty(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
     Returns:
         torch.Tensor: The computed penalty tensor of shape (num_envs,).
     """
-    command: PathCommand = env.command_manager.get_term(command_name)
+    command: SegmentPathCommand = env.command_manager.get_term(command_name)
     speed = torch.norm(command.robot_velocity_w, dim=-1)  # (num_envs,)
     distance = torch.norm(command.robot_pos_w - command.target_pos_w, dim=-1)  # (num_envs,)
 

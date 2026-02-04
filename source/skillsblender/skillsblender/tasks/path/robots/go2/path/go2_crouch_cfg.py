@@ -6,6 +6,7 @@ from isaaclab.utils import configclass
 import skillsblender.tasks.path.mdp as mdp
 
 
+@configclass
 class Go2CrouchEnvCfg(CrouchPathEnvCfg):
     """Unitree Go2 crouch skill training configuration."""
 
@@ -27,7 +28,7 @@ class Go2CrouchEnvCfg(CrouchPathEnvCfg):
         # Task rewards
         self.rewards.track_xy.weight = 6.0
         self.rewards.track_yaw.weight = 2.5
-        self.rewards.track_velocity.weight = 3.0
+        self.rewards.track_velocity_along_path_exp.weight = 3.0
 
         # Low height reward (encourage crouching)
         self.rewards.base_height_l2.weight = -3.0
@@ -60,6 +61,7 @@ class Go2CrouchEnvCfg(CrouchPathEnvCfg):
             self.disable_zero_weight_rewards()
 
 
+@configclass
 class Go2CrouchEnvCfg_PLAY(Go2CrouchEnvCfg):
     """Unitree Go2 crouch PLAY configuration."""
 

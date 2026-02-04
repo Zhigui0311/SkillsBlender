@@ -107,7 +107,7 @@ class BlenerPathEnvCfg(PathEnvCfg):
         # Balanced rewards for all skills
         self.rewards.track_xy.weight = 6.0
         self.rewards.track_yaw.weight = 3.0
-        self.rewards.track_velocity.weight = 4.0
+        self.rewards.track_velocity_along_path_exp.weight = 4.0
 
         # Base stability (important for skill transitions)
         self.rewards.flat_orientation.weight = -1.0
