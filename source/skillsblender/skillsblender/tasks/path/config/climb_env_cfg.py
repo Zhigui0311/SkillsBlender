@@ -51,14 +51,15 @@ class MyClimbSceneCfg(MySceneCfg):
     """Climb scene configuration with sloped terrain."""
 
     # Steep ledge obstacle (near-vertical front face) to train front-leg lift and pull-up behavior.
+    # Keep this cuboid tall so curriculum can move its top higher while still touching ground.
     climb_step = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ClimbStep",
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(1.8, 0.0, 0.28),
+            pos=(1.8, 0.0, -0.04),
             rot=(1.0, 0.0, 0.0, 0.0),
         ),
         spawn=sim_utils.CuboidCfg(
-            size=(0.45, 1.6, 0.56),
+            size=(0.45, 1.6, 1.20),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
                 disable_gravity=True,
@@ -111,9 +112,9 @@ class ClimbPathEnvCfg(PathEnvCfg):
         # Climb-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
-        self.commands.path_tracking.ranges.default_path_len = 4.6
+        self.commands.path_tracking.ranges.default_path_len = 5.2
         self.commands.path_tracking.climb_params.start_dist_range = (1.0, 1.3)
-        self.commands.path_tracking.climb_params.climb_len = 1.2
+        self.commands.path_tracking.climb_params.climb_len = 1.3
         self.commands.path_tracking.climb_params.climb_height = 0.56
 
         # Keep starts aligned with the ledge.

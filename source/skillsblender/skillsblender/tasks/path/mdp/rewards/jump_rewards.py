@@ -89,7 +89,8 @@ def jump_forward_velocity(
     env: ManagerBasedRLEnv,
     target_velocity: float = 1.5,
     std: float = 0.5,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    command_name: str = "path_tracking",
 ) -> torch.Tensor:
     """
     跳跃前向速度奖励。
@@ -102,6 +103,12 @@ def jump_forward_velocity(
     forward_vel = vel_b[:, 0]
     # 使用指数核奖励接近目标速度
     reward = torch.exp(-torch.square(forward_vel - target_velocity) / (std ** 2))
+    command = env.command_manager.get_term(command_name)
+    if hasattr(command, "is_in_jump_approach_phase") and hasattr(command, "is_in_jump_phase"):
+        gate = command.is_in_jump_approach_phase | command.is_in_jump_phase
+        reward = torch.where(gate, reward, torch.zeros_like(reward))
+    elif hasattr(command, "is_in_jump_phase"):
+        reward = torch.where(command.is_in_jump_phase, reward, torch.zeros_like(reward))
 
     return reward
 
@@ -284,18 +291,20 @@ def approach_momentum_reward(
     asset: Articulation = env.scene[asset_cfg.name]
     command = env.command_manager.get_term(command_name)
 
-    # 获取机器人位置和前向速度
-    robot_pos = asset.data.root_pos_w[:, :3]
     forward_vel = asset.data.root_lin_vel_b[:, 0]
-
-    # 获取当前目标航点位置
-    target_pos = command.pos_path_w[torch.arange(env.num_envs), command.current_waypoints_index]
-
-    # 计算到目标的距离
-    distance_to_target = torch.norm(target_pos[:, :2] - robot_pos[:, :2], dim=-1)
-
-    # 检测是否在接近阶段（距离目标在approach_distance内）
-    in_approach_phase = distance_to_target < approach_distance
+    if hasattr(command, "is_in_jump_approach_phase"):
+        in_approach_phase = command.is_in_jump_approach_phase
+    else:
+        # fallback for legacy commands: use distance to jump-start if available.
+        if hasattr(command, "_jump_start_dist") and hasattr(command, "_dist_along_planned"):
+            s = command._dist_along_planned()
+            dist_to_takeoff = command._jump_start_dist - s
+            in_approach_phase = (dist_to_takeoff >= 0.0) & (dist_to_takeoff <= approach_distance)
+        else:
+            robot_pos = asset.data.root_pos_w[:, :3]
+            target_pos = command.pos_path_w[torch.arange(env.num_envs), command.current_waypoints_index]
+            distance_to_target = torch.norm(target_pos[:, :2] - robot_pos[:, :2], dim=-1)
+            in_approach_phase = distance_to_target < approach_distance
 
     # 检测速度是否足够
     has_momentum = forward_vel > min_velocity

@@ -5,185 +5,158 @@
 
 """Symmetry for GO2 path tracking task (policy/critic obs + actions).
 
-This version:
-- NEVER touches `env` at module import time.
-- Dynamically reads num_lookahead_waypoints and slice dims from the command cfg.
-- Applies left-right symmetry to:
-  * path_slice: y -> -y, yaw_rel -> -yaw_rel (x,z unchanged)
-  * base_ang_vel / projected_gravity: same as IsaacLab convention
-  * joints + actions: swap left/right legs + sign flips on hip joints
+This implementation applies left-right symmetry with two guarantees:
+1) Only the first ``4 * num_lookahead_waypoints`` entries of command/path observation are mirrored.
+2) Joint/action symmetry uses an explicit GO2 joint order:
+   [FR, FL, RR, RL] x [hip, thigh, calf].
 """
 
-# from __future__ import annotations
-
-# import torch
-# from tensordict import TensorDict
-# from typing import TYPE_CHECKING
-
-# if TYPE_CHECKING:
-#     from isaaclab.envs import ManagerBasedRLEnv
-
-# __all__ = ["compute_symmetric_states"]
-
-
-# @torch.no_grad()
-# def compute_symmetric_states(
-#     env: ManagerBasedRLEnv,
-#     obs: TensorDict | None = None,
-#     actions: torch.Tensor | None = None,
-#     command_name: str = "path_tracking",
-# ):
-#     """Augments observations/actions using left-right symmetry (x forward, y left).
-
-#     Args:
-#         env: ManagerBasedRLEnv (runtime object injected by runner).
-#         obs: TensorDict with keys "policy" and optionally "critic".
-#         actions: (B, act_dim)
-#         command_name: command term name used to fetch PathCommand cfg.
-
-#     Returns:
-#         (obs_aug, actions_aug) where batch is doubled if input is not None.
-#     """
-    
-#     # from pathlib import Path
-#     # p = Path("/tmp/go2_sym_calls.txt")
-#     # n = int(p.read_text()) if p.exists() else 0
-#     # p.write_text(str(n + 1))
- 
-
-
-
-#     # ---- get dynamic path dims from command cfg (runtime, safe) ----
-#     cmd = env.command_manager.get_term(command_name)  # PathCommand
-#     W = int(cmd.cfg.ranges.num_lookahead_waypoints)
-#     PATH_SLICE = int(cmd.cfg.slice_nums)  # = 4 * W
-
-#     # ---------------- observations ----------------
-#     if obs is not None:
-#         B = obs.batch_size[0]
-#         obs_aug = obs.repeat(2)
-
-#         # policy
-#         policy = obs["policy"]
-#         obs_aug["policy"][:B] = policy
-#         obs_aug["policy"][B : 2 * B] = _transform_policy_obs_left_right(
-#             policy,
-#             PATH_SLICE=PATH_SLICE,
-#             W=W,
-#         )
-
-#         # critic (optional)
-#         if "critic" in obs.keys():
-#             critic = obs["critic"]
-#             obs_aug["critic"][:B] = critic
-#             obs_aug["critic"][B : 2 * B] = _transform_critic_obs_left_right(
-#                 critic,
-#                 PATH_SLICE=PATH_SLICE,
-#                 W=W,
-#             )
-#     else:
-#         obs_aug = None
-
-#     # ---------------- actions ----------------
-#     if actions is not None:
-#         B = actions.shape[0]
-#         actions_aug = torch.zeros(B * 2, actions.shape[1], device=actions.device)
-#         actions_aug[:B] = actions
-#         actions_aug[B : 2 * B] = _transform_actions_left_right(actions)
-#     else:
-#         actions_aug = None
-
-#     return obs_aug, actions_aug
-
+from __future__ import annotations
 
 import torch
 from tensordict import TensorDict
 
-@torch.no_grad()
-def compute_symmetric_states(env, obs: TensorDict | None = None, actions: torch.Tensor | None = None, command_name: str = "path_tracking"):
-    # ---- infer W from obs dims (no env access needed) ----
-    PATH_SLICE = None
-    W = None
+# Tail dimensions after command/path term in policy/critic observations.
+# policy tail: base_ang_vel(3) + projected_gravity(3) + joint_pos(12) + joint_vel(12) + actions(12)
+_POLICY_TAIL_DIM = 42
+# critic tail: base_lin_vel(3) + base_ang_vel(3) + projected_gravity(3) + joint_pos(12) + joint_vel(12) + actions(12)
+_CRITIC_TAIL_DIM = 45
 
-    if obs is not None and "policy" in obs.keys():
-        policy_dim = obs["policy"].shape[-1]
-        PATH_SLICE = policy_dim - 42  # 3+3+12+12+12
-        if PATH_SLICE % 4 != 0 or PATH_SLICE <= 0:
-            raise RuntimeError(f"Bad PATH_SLICE inferred from policy_dim={policy_dim}: PATH_SLICE={PATH_SLICE}")
-        W = PATH_SLICE // 4
-    elif obs is not None and "critic" in obs.keys():
-        critic_dim = obs["critic"].shape[-1]
-        PATH_SLICE = critic_dim - 45  # 3+3+3+12+12+12
-        if PATH_SLICE % 4 != 0 or PATH_SLICE <= 0:
-            raise RuntimeError(f"Bad PATH_SLICE inferred from critic_dim={critic_dim}: PATH_SLICE={PATH_SLICE}")
-        W = PATH_SLICE // 4
+# Explicit GO2 joint order expected by symmetry mapping.
+# This matches GO2_JOINT_NAMES in path env configs and action term ordering.
+_CANONICAL_GO2_ORDER = (
+    "FR_hip_joint",
+    "FR_thigh_joint",
+    "FR_calf_joint",
+    "FL_hip_joint",
+    "FL_thigh_joint",
+    "FL_calf_joint",
+    "RR_hip_joint",
+    "RR_thigh_joint",
+    "RR_calf_joint",
+    "RL_hip_joint",
+    "RL_thigh_joint",
+    "RL_calf_joint",
+)
+
+# Left-right swap permutation under canonical order above.
+# FR <-> FL and RR <-> RL.
+_LR_PERM = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+# Hip joints (after swapping) require sign flip.
+_HIP_SIGN_FLIP_IDXS = [0, 3, 6, 9]
+
+
+def _get_num_lookahead_waypoints(env, command_name: str) -> int:
+    """Read lookahead waypoint count from command term."""
+    env_unwrapped = getattr(env, "unwrapped", env)
+    cmd = env_unwrapped.command_manager.get_term(command_name)
+    if hasattr(cmd, "num_lookahead_waypoints"):
+        return int(cmd.num_lookahead_waypoints)
+    return int(cmd.cfg.ranges.num_lookahead_waypoints)
+
+
+@torch.no_grad()
+def compute_symmetric_states(
+    env,
+    obs: TensorDict | None = None,
+    actions: torch.Tensor | None = None,
+    command_name: str = "path_tracking",
+):
+    """Augment observations/actions using left-right symmetry.
+
+    For command/path observations, only the first ``4 * W`` entries are mirrored,
+    where ``W = num_lookahead_waypoints``. Command meta is preserved.
+    """
+    path_slice_dim = 0
+    if obs is not None:
+        if env is None:
+            raise RuntimeError("`env` is required for symmetry when obs is provided.")
+        w = _get_num_lookahead_waypoints(env, command_name)
+        path_slice_dim = 4 * w
     else:
-        # If only actions are passed, you can hardcode W or skip path transform.
-        # Here we just skip path transforms (still do joint swap for actions).
-        PATH_SLICE, W = 0, 0
+        w = 0
 
     # ---------------- observations ----------------
     if obs is not None:
-        B = obs.batch_size[0]
+        batch_size = obs.batch_size[0]
         obs_aug = obs.repeat(2)
 
-        # policy
         if "policy" in obs.keys():
             policy = obs["policy"]
-            obs_aug["policy"][:B] = policy
-            obs_aug["policy"][B:2*B] = _transform_policy_obs_left_right(policy, PATH_SLICE=PATH_SLICE, W=W)
+            cmd_dim = int(policy.shape[-1]) - _POLICY_TAIL_DIM
+            if cmd_dim < path_slice_dim:
+                raise RuntimeError(
+                    f"policy cmd dim ({cmd_dim}) is smaller than mirrored path dim ({path_slice_dim})."
+                )
+            obs_aug["policy"][:batch_size] = policy
+            obs_aug["policy"][batch_size : 2 * batch_size] = _transform_policy_obs_left_right(
+                policy,
+                cmd_dim=cmd_dim,
+                path_slice_dim=path_slice_dim,
+                w=w,
+            )
 
-        # critic
         if "critic" in obs.keys():
             critic = obs["critic"]
-            obs_aug["critic"][:B] = critic
-            obs_aug["critic"][B:2*B] = _transform_critic_obs_left_right(critic, PATH_SLICE=PATH_SLICE, W=W)
+            cmd_dim = int(critic.shape[-1]) - _CRITIC_TAIL_DIM
+            if cmd_dim < path_slice_dim:
+                raise RuntimeError(
+                    f"critic cmd dim ({cmd_dim}) is smaller than mirrored path dim ({path_slice_dim})."
+                )
+            obs_aug["critic"][:batch_size] = critic
+            obs_aug["critic"][batch_size : 2 * batch_size] = _transform_critic_obs_left_right(
+                critic,
+                cmd_dim=cmd_dim,
+                path_slice_dim=path_slice_dim,
+                w=w,
+            )
     else:
         obs_aug = None
 
     # ---------------- actions ----------------
     if actions is not None:
-        B = actions.shape[0]
-        actions_aug = torch.zeros(B * 2, actions.shape[1], device=actions.device)
-        actions_aug[:B] = actions
-        actions_aug[B:2*B] = _transform_actions_left_right(actions)
+        batch_size = actions.shape[0]
+        actions_aug = torch.zeros(batch_size * 2, actions.shape[1], device=actions.device)
+        actions_aug[:batch_size] = actions
+        actions_aug[batch_size : 2 * batch_size] = _transform_actions_left_right(actions)
     else:
         actions_aug = None
 
     return obs_aug, actions_aug
 
+
 # =============================================================================
 # Obs transforms (LEFT-RIGHT)
 # =============================================================================
 
-def _transform_policy_obs_left_right(obs: torch.Tensor, *, PATH_SLICE: int, W: int) -> torch.Tensor:
-    """Policy obs layout (from your ObservationsCfg.PolicyCfg order):
-        0:PATH_SLICE          -> path_slice (flattened)
-        PATH_SLICE: +3        -> base_ang_vel
-        +3: +3                -> projected_gravity
-        +3: +12               -> joint_pos
-        +12:+12               -> joint_vel
-        +12:+12               -> actions
+
+def _transform_policy_obs_left_right(
+    obs: torch.Tensor,
+    *,
+    cmd_dim: int,
+    path_slice_dim: int,
+    w: int,
+) -> torch.Tensor:
+    """Policy obs layout:
+    [command(path+meta)] + [base_ang_vel] + [projected_gravity] + [joint_pos] + [joint_vel] + [actions]
     """
     obs = obs.clone()
     device = obs.device
 
-    # Build slices dynamically
-    s_path = slice(0, PATH_SLICE)
-    s_ang = slice(s_path.stop, s_path.stop + 3)
+    s_path = slice(0, path_slice_dim)
+    s_ang = slice(cmd_dim, cmd_dim + 3)
     s_grav = slice(s_ang.stop, s_ang.stop + 3)
     s_jpos = slice(s_grav.stop, s_grav.stop + 12)
     s_jvel = slice(s_jpos.stop, s_jpos.stop + 12)
     s_act = slice(s_jvel.stop, s_jvel.stop + 12)
 
-    # 1) path_slice left-right: (x,y,z,yaw_rel) for each waypoint
-    obs[:, s_path] = _transform_path_slice_left_right(obs[:, s_path], W=W)
+    # Mirror only xyz-yaw slices, keep command meta untouched.
+    obs[:, s_path] = _transform_path_slice_left_right(obs[:, s_path], w=w)
 
-    # 2) base_ang_vel, projected_gravity: follow IsaacLab convention for LR mirror
+    # IsaacLab left-right convention for base terms.
     obs[:, s_ang] *= torch.tensor([-1.0, 1.0, -1.0], device=device)
     obs[:, s_grav] *= torch.tensor([1.0, -1.0, 1.0], device=device)
 
-    # 3) joints + last action: swap legs + sign flips
     obs[:, s_jpos] = _switch_go2_joints_left_right(obs[:, s_jpos])
     obs[:, s_jvel] = _switch_go2_joints_left_right(obs[:, s_jvel])
     obs[:, s_act] = _switch_go2_joints_left_right(obs[:, s_act])
@@ -191,38 +164,34 @@ def _transform_policy_obs_left_right(obs: torch.Tensor, *, PATH_SLICE: int, W: i
     return obs
 
 
-def _transform_critic_obs_left_right(obs: torch.Tensor, *, PATH_SLICE: int, W: int) -> torch.Tensor:
-    """Critic obs layout (from your ObservationsCfg.CriticCfg order):
-        0:PATH_SLICE          -> path_slice
-        PATH_SLICE:+3         -> base_lin_vel
-        +3:+3                 -> base_ang_vel
-        +3:+3                 -> projected_gravity
-        +3:+12                -> joint_pos
-        +12:+12               -> joint_vel
-        +12:+12               -> actions
+def _transform_critic_obs_left_right(
+    obs: torch.Tensor,
+    *,
+    cmd_dim: int,
+    path_slice_dim: int,
+    w: int,
+) -> torch.Tensor:
+    """Critic obs layout:
+    [command(path+meta)] + [base_lin_vel] + [base_ang_vel] + [projected_gravity] + [joint_pos] + [joint_vel] + [actions]
     """
     obs = obs.clone()
     device = obs.device
 
-    s_path = slice(0, PATH_SLICE)
-    s_lin = slice(s_path.stop, s_path.stop + 3)
+    s_path = slice(0, path_slice_dim)
+    s_lin = slice(cmd_dim, cmd_dim + 3)
     s_ang = slice(s_lin.stop, s_lin.stop + 3)
     s_grav = slice(s_ang.stop, s_ang.stop + 3)
     s_jpos = slice(s_grav.stop, s_grav.stop + 12)
     s_jvel = slice(s_jpos.stop, s_jpos.stop + 12)
     s_act = slice(s_jvel.stop, s_jvel.stop + 12)
 
-    # 1) path_slice LR
-    obs[:, s_path] = _transform_path_slice_left_right(obs[:, s_path], W=W)
+    # Mirror only xyz-yaw slices, keep command meta untouched.
+    obs[:, s_path] = _transform_path_slice_left_right(obs[:, s_path], w=w)
 
-    # 2) base_lin_vel LR: y flips, x/z same (common convention)
     obs[:, s_lin] *= torch.tensor([1.0, -1.0, 1.0], device=device)
-
-    # 3) base_ang_vel, projected_gravity
     obs[:, s_ang] *= torch.tensor([-1.0, 1.0, -1.0], device=device)
     obs[:, s_grav] *= torch.tensor([1.0, -1.0, 1.0], device=device)
 
-    # 4) joints + last action
     obs[:, s_jpos] = _switch_go2_joints_left_right(obs[:, s_jpos])
     obs[:, s_jvel] = _switch_go2_joints_left_right(obs[:, s_jvel])
     obs[:, s_act] = _switch_go2_joints_left_right(obs[:, s_act])
@@ -230,28 +199,23 @@ def _transform_critic_obs_left_right(obs: torch.Tensor, *, PATH_SLICE: int, W: i
     return obs
 
 
-def _transform_path_slice_left_right(path_flat: torch.Tensor, *, W: int) -> torch.Tensor:
-    """path_flat: (B, 4*W), each waypoint [x, y, z, yaw_rel] in BODY frame.
+def _transform_path_slice_left_right(path_flat: torch.Tensor, *, w: int) -> torch.Tensor:
+    """Mirror path slice in body frame for [x, y, z, yaw_rel] x W.
 
-    Left-right mirror (x forward, y left):
-      y -> -y
-      yaw_rel -> -yaw_rel
-      x,z unchanged
+    Left-right mirror: y -> -y, yaw_rel -> -yaw_rel.
     """
-    B = path_flat.shape[0]
-    # (B, W, 4)
-    path = path_flat.view(B, W, 4).clone()
-
-    # y flip
+    if path_flat.numel() == 0:
+        return path_flat
+    b = path_flat.shape[0]
+    path = path_flat.view(b, w, 4).clone()
     path[..., 1] *= -1.0
-    # yaw_rel flip
     path[..., 3] *= -1.0
-
-    return path.view(B, 4 * W)
-
+    return path.view(b, 4 * w)
 
 
-# Action transforms (LEFT-RIGHT)
+# =============================================================================
+# Action / joint transforms
+# =============================================================================
 
 
 def _transform_actions_left_right(actions: torch.Tensor) -> torch.Tensor:
@@ -260,44 +224,16 @@ def _transform_actions_left_right(actions: torch.Tensor) -> torch.Tensor:
     return actions
 
 
-# =============================================================================
-# Joint mapping helpers
-# =============================================================================
-
-
 def _switch_go2_joints_left_right(joint_data: torch.Tensor) -> torch.Tensor:
-    """Swap left/right legs and flip hip signs.
+    """Swap left/right legs and flip hip signs with explicit GO2 order.
 
-    Works for shape (..., 12).
-    """    
-    #针对 unitree.py 定义的 [FR, FL, RR, RL] 顺序进行交换，之前的顺序不对
-    joint_data_switched = torch.zeros_like(joint_data)
+    Expected order is exactly `_CANONICAL_GO2_ORDER`.
+    """
+    if joint_data.shape[-1] != len(_CANONICAL_GO2_ORDER):
+        raise RuntimeError(
+            f"GO2 symmetry expects {len(_CANONICAL_GO2_ORDER)} joints, got {joint_data.shape[-1]}."
+        )
 
-    # 交换 FR (0,1,2) 和 FL (3,4,5)
-    joint_data_switched[..., [0, 1, 2]] = joint_data[..., [3, 4, 5]]
-    joint_data_switched[..., [3, 4, 5]] = joint_data[..., [0, 1, 2]]
-    
-    # 交换 RR (6,7,8) 和 RL (9,10,11)
-    joint_data_switched[..., [6, 7, 8]] = joint_data[..., [9, 10, 11]]
-    joint_data_switched[..., [9, 10, 11]] = joint_data[..., [6, 7, 8]]
-
-    # 翻转胯部关节（Hip）的符号：索引是 0, 3, 6, 9
-    joint_data_switched[..., [0, 3, 6, 9]] *= -1.0
+    joint_data_switched = joint_data[..., _LR_PERM].clone()
+    joint_data_switched[..., _HIP_SIGN_FLIP_IDXS] *= -1.0
     return joint_data_switched
-
-
-# def _switch_go2_joints_left_right(joint_data: torch.Tensor) -> torch.Tensor:
-#     """Swap left/right legs and flip hip signs.
-
-#     Works for shape (..., 12).
-#     """
-#     joint_data_switched = torch.zeros_like(joint_data)
-
-#     # left <-- right
-#     joint_data_switched[..., [0, 4, 8, 2, 6, 10]] = joint_data[..., [1, 5, 9, 3, 7, 11]]
-#     # right <-- left
-#     joint_data_switched[..., [1, 5, 9, 3, 7, 11]] = joint_data[..., [0, 4, 8, 2, 6, 10]]
-
-#     # flip sign of hip joints
-#     joint_data_switched[..., [0, 1, 2, 3]] *= -1.0
-#     return joint_data_switched

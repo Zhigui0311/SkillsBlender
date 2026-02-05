@@ -204,6 +204,32 @@ class JumpPathPlanner(SkillPathPlanner):
             start_pos, start_yaw, terrain_data
         )
 
+        # Scanner miss fallback: still synthesize a jump gap so jump skill does not collapse to walk.
+        missing = ~has_gap
+        if torch.any(missing):
+            seg_len_m = segment_length[missing]
+            mid = float(self.cfg.fallback_gap_center_ratio) * seg_len_m
+            gap_w = torch.clamp(0.18 * seg_len_m, min=self.cfg.min_gap_width, max=self.cfg.max_gap_width)
+            s0 = torch.clamp(mid - 0.5 * gap_w, min=self.cfg.min_gap_start_dist)
+            s1 = s0 + gap_w
+            max_gap_end = seg_len_m - max(float(self.cfg.min_landing_runout), 0.5)
+            s1 = torch.minimum(s1, max_gap_end)
+            s0 = torch.minimum(s0, s1 - self.cfg.min_gap_width)
+            gap_s0[missing] = s0
+            gap_s1[missing] = s1
+            has_gap[missing] = True
+
+        # Sanitize detected/synthetic gaps.
+        if torch.any(has_gap):
+            hs0 = torch.clamp(gap_s0[has_gap], min=self.cfg.min_gap_start_dist)
+            hw = (gap_s1[has_gap] - hs0).clamp(min=self.cfg.min_gap_width, max=self.cfg.max_gap_width)
+            hs1 = hs0 + hw
+            max_gap_end = segment_length[has_gap] - max(float(self.cfg.min_landing_runout), 0.5)
+            hs1 = torch.minimum(hs1, max_gap_end)
+            hs0 = torch.minimum(hs0, hs1 - self.cfg.min_gap_width)
+            gap_s0[has_gap] = hs0
+            gap_s1[has_gap] = hs1
+
         # 2. 计算跳跃参数
         gap_w = (gap_s1 - gap_s0).clamp(min=0.0)
         if self.cfg.takeoff_margin is None:
@@ -233,8 +259,27 @@ class JumpPathPlanner(SkillPathPlanner):
         else:
             jump_height = torch.full_like(gap_w, float(self.cfg.jump_height))
 
-        jump_s0 = torch.where(has_gap, gap_s0 - takeoff, torch.zeros_like(gap_s0))
+        # Keep enough approach distance before takeoff.
+        pre_jump_start = gap_s0 - takeoff
+        shift = torch.clamp(float(self.cfg.min_jump_start_dist) - pre_jump_start, min=0.0)
+        gap_s0 = torch.where(has_gap, gap_s0 + shift, gap_s0)
+        gap_s1 = torch.where(has_gap, gap_s1 + shift, gap_s1)
+
+        jump_s0 = torch.where(
+            has_gap,
+            torch.maximum(gap_s0 - takeoff, torch.full_like(gap_s0, float(self.cfg.min_jump_start_dist))),
+            torch.zeros_like(gap_s0),
+        )
         jump_s1 = torch.where(has_gap, gap_s1 + landing, segment_length)
+
+        extension = torch.clamp(1.0 + 0.5 * gap_w, min=self.cfg.endpoint_extension_min, max=self.cfg.endpoint_extension_max)
+        planned_len = torch.where(
+            has_gap,
+            torch.maximum(jump_s1 + extension, jump_s1 + float(self.cfg.min_landing_runout)),
+            segment_length,
+        )
+        if self.cfg.post_jump_distance > 0.0:
+            planned_len = planned_len + float(self.cfg.post_jump_distance)
 
         # 3. 生成基础线性路径
         forward_dir = torch.stack([
@@ -243,14 +288,14 @@ class JumpPathPlanner(SkillPathPlanner):
             torch.zeros_like(start_yaw),
         ], dim=-1)
 
-        end_pos = start_pos + forward_dir * segment_length.unsqueeze(-1)
+        end_pos = start_pos + forward_dir * planned_len.unsqueeze(-1)
 
         num_waypoints = 32
         alpha = torch.linspace(0, 1, num_waypoints, device=device).view(1, -1, 1)
         waypoints = start_pos.unsqueeze(1) + (end_pos - start_pos).unsqueeze(1) * alpha
 
         # 4. 在跳跃段添加抛物线轨迹
-        dist_at_wp = alpha.squeeze(-1) * segment_length.unsqueeze(-1)  # (N, W)
+        dist_at_wp = alpha.squeeze(-1) * planned_len.unsqueeze(-1)  # (N, W)
         den = (jump_s1.unsqueeze(-1) - jump_s0.unsqueeze(-1)).clamp(min=1e-3)
         t = ((dist_at_wp - jump_s0.unsqueeze(-1)) / den).clamp(0.0, 1.0)
         arc = jump_height.unsqueeze(-1) * 4.0 * t * (1.0 - t)
@@ -263,16 +308,16 @@ class JumpPathPlanner(SkillPathPlanner):
 
         # 6. 构建 segment 参数
         segment_params = self._make_segment_params(N)
-        self._set_segment_param(segment_params, "v_ref", 1.0)
+        self._set_segment_param(segment_params, "v_ref", 1.45)
         self._set_segment_param(segment_params, "jump_height_ref", jump_height)
 
         return SegmentPlan(
             waypoints=waypoints,
             headings=headings,
             skill_id=1,  # SKILL_ID["jump"]
-            segment_length=jump_s1,
+            segment_length=planned_len,
             segment_params=segment_params,
-            valid=has_gap,
+            valid=torch.ones(N, dtype=torch.bool, device=device),
         )
 
     def _detect_gap(

@@ -82,3 +82,4 @@ tests/
 *_COMPLETE.md
 test_*.py
 run_*.sh
+test_*.bundle

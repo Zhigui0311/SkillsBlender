@@ -314,6 +314,114 @@ def curriculum_velocity_requirement(
         # 实际实现取决于奖励函数的设计
 
 
+def curriculum_virtual_skill_difficulty(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int] | torch.Tensor | None,
+    command_name: str,
+    reward_threshold: float,
+    prob_step: float = 0.002,
+    max_prob: float = 0.08,
+    height_step: float = 0.02,
+    max_height: float = 0.80,
+    length_step: float = 0.10,
+    max_length: float = 2.20,
+) -> dict[str, float] | None:
+    """Curriculum for virtual (hallucinated) geometry commands on flat terrain."""
+    mean_reward = _mean_episode_reward(env, env_ids)
+    if mean_reward is None:
+        return None
+
+    try:
+        command = env.command_manager.get_term(command_name)
+        cfg = command.cfg
+    except Exception:
+        return None
+
+    if not hasattr(cfg, "jump_prob") or not hasattr(cfg, "jump_height_range") or not hasattr(cfg, "jump_length_range"):
+        return None
+
+    cur_prob = float(getattr(cfg, "jump_prob"))
+    h_lo, h_hi = tuple(getattr(cfg, "jump_height_range"))
+    l_lo, l_hi = tuple(getattr(cfg, "jump_length_range"))
+
+    new_prob = cur_prob
+    new_h_hi = float(h_hi)
+    new_l_hi = float(l_hi)
+    changed = False
+
+    if mean_reward > reward_threshold:
+        new_prob = min(float(max_prob), cur_prob + float(prob_step))
+        new_h_hi = min(float(max_height), float(h_hi) + float(height_step))
+        new_l_hi = min(float(max_length), float(l_hi) + float(length_step))
+
+        if abs(new_prob - cur_prob) > 1e-6:
+            cfg.jump_prob = new_prob
+            changed = True
+
+        if abs(new_h_hi - float(h_hi)) > 1e-6:
+            cfg.jump_height_range = (float(h_lo), new_h_hi)
+            # sync aliases used by specific virtual skills
+            if hasattr(cfg, "crouch_depth_range"):
+                cfg.crouch_depth_range = (float(h_lo), new_h_hi)
+            if hasattr(cfg, "climb_height_range"):
+                cfg.climb_height_range = (float(h_lo), new_h_hi)
+            if hasattr(cfg, "step_height_range"):
+                cfg.step_height_range = (float(h_lo), new_h_hi)
+            changed = True
+
+        if abs(new_l_hi - float(l_hi)) > 1e-6:
+            cfg.jump_length_range = (float(l_lo), new_l_hi)
+            # sync aliases used by specific virtual skills
+            if hasattr(cfg, "crouch_length_range"):
+                cfg.crouch_length_range = (float(l_lo), new_l_hi)
+            if hasattr(cfg, "climb_length_range"):
+                cfg.climb_length_range = (float(l_lo), new_l_hi)
+            changed = True
+
+        if changed:
+            print(
+                "[Virtual Curriculum] jump_prob/height_hi/length_hi updated: "
+                f"{new_prob:.3f} / {new_h_hi:.3f} / {new_l_hi:.3f}"
+            )
+
+    return {"jump_prob": new_prob, "height_hi": new_h_hi, "length_hi": new_l_hi}
+
+
+def curriculum_virtual_stairs_steps(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int] | torch.Tensor | None,
+    command_name: str,
+    reward_threshold: float,
+    step_increase: int = 1,
+    max_steps: int = 10,
+) -> dict[str, float] | None:
+    """Curriculum for virtual stairs by increasing number of steps."""
+    mean_reward = _mean_episode_reward(env, env_ids)
+    if mean_reward is None:
+        return None
+
+    try:
+        command = env.command_manager.get_term(command_name)
+        cfg = command.cfg
+    except Exception:
+        return None
+
+    if not hasattr(cfg, "stairs_steps_range"):
+        return None
+
+    lo, hi = tuple(getattr(cfg, "stairs_steps_range"))
+    new_hi = int(hi)
+    if mean_reward > reward_threshold:
+        new_hi = min(int(max_steps), int(hi) + int(step_increase))
+        if new_hi != int(hi):
+            cfg.stairs_steps_range = (int(lo), new_hi)
+            if hasattr(cfg, "num_steps_range"):
+                cfg.num_steps_range = (int(lo), new_hi)
+            print(f"[Virtual Stairs Curriculum] max steps updated: {new_hi}")
+
+    return {"stairs_steps_hi": float(new_hi)}
+
+
 def curriculum_terrain_diffiƒculty(
     env: ManagerBasedRLEnv,
     env_ids: Sequence[int] | torch.Tensor | None,

@@ -329,14 +329,14 @@ class ObservationsCfg:
         # ---  Robot Joint States ---
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
-        
+
         joint_vel = ObsTerm(
             func=mdp.joint_vel,
-            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
@@ -382,14 +382,14 @@ class ObservationsCfg:
     
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel,
-            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )
-        
+
         joint_vel = ObsTerm(
             func=mdp.joint_vel,
-            params={"asset_cfg": SceneEntityCfg("robot", preserve_order=True)},
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES, preserve_order=True)},
             clip=(-100.0,100.0),
             scale=1.0,
         )

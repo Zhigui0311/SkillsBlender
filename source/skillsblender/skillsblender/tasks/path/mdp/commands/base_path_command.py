@@ -48,6 +48,10 @@ class SegmentPathCommand(CommandTerm):
         "clearance_ref": 3,
         "jump_height_ref": 4,
         "misc": 5,
+        # aliases used by virtual-skill commands
+        "crouch_height_ref": 2,
+        "step_height_ref": 3,
+        "slope_angle_ref": 5,
     }
 
     cfg: PathCommandCfg

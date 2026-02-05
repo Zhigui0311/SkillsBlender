@@ -27,12 +27,15 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         #task
         self.rewards.jump_height_tracking.weight = 4.0  # 3.0 → 4.0
         self.rewards.jump_landing_stability.weight = 2.5  # 2.0 → 2.5
-        self.rewards.jump_forward_velocity.weight = 1.5  # 2.0 → 1.5
+        self.rewards.jump_forward_velocity.weight = 2.5
+        self.rewards.approach_momentum_reward.weight = 2.0
+        self.rewards.approach_momentum_reward.params["min_velocity"] = 1.1
+        self.rewards.approach_momentum_reward.params["approach_distance"] = 1.2
         
         # emphasize tracking the planned trajectory
         self.rewards.track_xy.weight = 8.0
         self.rewards.track_yaw.weight = 4.0
-        self.rewards.track_velocity.weight = 5.0
+        self.rewards.track_velocity.weight = 6.0
         
         # # Base 
         # self.rewards.base_height.weight = -10.0  #！1 这个奖励还没有写
@@ -70,7 +73,15 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         # 命令参数调整
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
+        self.commands.path_tracking.ranges.default_path_len = 5.6
         self.commands.path_tracking.jump_params.jump_height = 0.45
+        self.commands.path_tracking.jump_params.min_gap_start_dist = 1.6
+        self.commands.path_tracking.jump_params.min_gap_width = 0.35
+        self.commands.path_tracking.jump_params.max_gap_width = 0.9
+        self.commands.path_tracking.jump_params.min_jump_start_dist = 1.0
+        self.commands.path_tracking.jump_params.min_landing_runout = 1.2
+        self.commands.path_tracking.jump_params.approach_phase_window = 1.1
+        self.commands.path_tracking.jump_params.fallback_gap_center_ratio = 0.60
         self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "jump", "walk"]
         # Others
         # self.rewards.air_time_variance.weight = -4.0

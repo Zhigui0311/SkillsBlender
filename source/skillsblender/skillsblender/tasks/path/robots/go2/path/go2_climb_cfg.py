@@ -8,9 +8,9 @@ import skillsblender.tasks.path.mdp as mdp
 
 
 _CLIMB_INIT_H = 0.56
-_CLIMB_FINAL_H = 0.78
+_CLIMB_FINAL_H = 1.05
 _CLIMB_INIT_LEN = 1.30
-_CLIMB_FINAL_LEN = 0.90
+_CLIMB_FINAL_LEN = 0.65
 
 
 @configclass
@@ -24,13 +24,13 @@ class ClimbCurriculumCfg:
             "reward_threshold": 60.0,
             "initial_climb_height": _CLIMB_INIT_H,
             "final_climb_height": _CLIMB_FINAL_H,
-            "climb_height_step": 0.02,
+            "climb_height_step": 0.03,
             "initial_climb_len": _CLIMB_INIT_LEN,
             "final_climb_len": _CLIMB_FINAL_LEN,
             "climb_len_step": 0.03,
             "step_asset_name": "climb_step",
             "top_asset_name": "climb_top",
-            "step_half_height": 0.28,
+            "step_half_height": 0.60,
             "top_half_thickness": 0.05,
         },
     )
@@ -108,7 +108,7 @@ class Go2ClimbCurEnvCfg(Go2ClimbEnvCfg):
         self.commands.path_tracking.climb_params.climb_len = _CLIMB_INIT_LEN
 
         if hasattr(self.scene, "climb_step"):
-            self.scene.climb_step.init_state.pos = (1.8, 0.0, _CLIMB_INIT_H - 0.28)
+            self.scene.climb_step.init_state.pos = (1.8, 0.0, _CLIMB_INIT_H - 0.60)
         if hasattr(self.scene, "climb_top"):
             self.scene.climb_top.init_state.pos = (2.9, 0.0, _CLIMB_INIT_H + 0.05)
 

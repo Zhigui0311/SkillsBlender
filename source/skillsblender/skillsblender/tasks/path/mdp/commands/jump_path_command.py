@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
-from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
+from isaaclab.utils.math import wrap_to_pi
 
 from .base_path_command import SegmentPathCommand
 from .path_command_cfg import PathCommandCfg
@@ -36,18 +36,25 @@ class JumpPathCommand(SegmentPathCommand):
         self._has_gap = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._jump_start_dist = torch.zeros(self.num_envs, device=self.device)
         self._jump_end_dist = torch.zeros(self.num_envs, device=self.device)
+        self._jump_approach_start_dist = torch.zeros(self.num_envs, device=self.device)
 
     @property
     def is_in_jump_phase(self) -> torch.Tensor:
         s = self._dist_along_planned()
         return self._has_gap & (s >= self._jump_start_dist) & (s <= self._jump_end_dist)
 
+    @property
+    def is_in_jump_approach_phase(self) -> torch.Tensor:
+        s = self._dist_along_planned()
+        return self._has_gap & (s >= self._jump_approach_start_dist) & (s < self._jump_start_dist)
+
     def _resample_command(self, env_ids: torch.Tensor):
         # planned frame
         self._set_planned_frame_from_robot(env_ids)
+        jp = self.cfg.jump_params
 
         # heading offset
-        off_min, off_max = self.cfg.jump_params.heading_offset_range
+        off_min, off_max = jp.heading_offset_range
         if off_min == off_max:
             self.heading_offset[env_ids] = off_min
         else:
@@ -80,7 +87,7 @@ class JumpPathCommand(SegmentPathCommand):
             y_lat = -sy * dx + cy * dy
             z_w = ray_hits_w[..., 2]
 
-            valid = (x_fwd >= 0.0) & (x_fwd <= self.cfg.jump_params.scan_dist) & (torch.abs(y_lat) <= self.cfg.jump_params.scan_width)
+            valid = (x_fwd >= 0.0) & (x_fwd <= jp.scan_dist) & (torch.abs(y_lat) <= jp.scan_width)
 
             for bi in range(len(env_ids)):
                 m = valid[bi]
@@ -96,7 +103,7 @@ class JumpPathCommand(SegmentPathCommand):
                 ref_samples = zv[:ref_window]
                 ref_k = max(1, ref_window // 2)
                 ref_h = torch.topk(ref_samples, k=ref_k).values.median()
-                is_gap = (zv - ref_h) < self.cfg.jump_params.gap_threshold
+                is_gap = (zv - ref_h) < jp.gap_threshold
                 if not torch.any(is_gap):
                     continue
                 gi = torch.nonzero(is_gap, as_tuple=False).squeeze(-1)
@@ -113,20 +120,31 @@ class JumpPathCommand(SegmentPathCommand):
         missing = ~has_gap
         if torch.any(missing):
             default_len = torch.full((len(env_ids),), float(self.cfg.ranges.default_path_len), device=self.device)
-            mid = 0.55 * default_len[missing]
-            gap_w = torch.clamp(0.18 * default_len[missing], min=0.45, max=0.8)
-            s0 = torch.clamp(mid - 0.5 * gap_w, min=0.6)
-            s1 = torch.clamp(s0 + gap_w, max=default_len[missing] - 0.6)
-            too_short = (s1 - s0) < 0.2
-            if torch.any(too_short):
-                s1 = torch.where(too_short, s0 + 0.2, s1)
+            mid = float(jp.fallback_gap_center_ratio) * default_len[missing]
+            gap_w = torch.clamp(0.18 * default_len[missing], min=jp.min_gap_width, max=jp.max_gap_width)
+            s0 = torch.clamp(mid - 0.5 * gap_w, min=jp.min_gap_start_dist)
+            s1 = s0 + gap_w
+            max_gap_end = default_len[missing] - max(float(jp.min_landing_runout), 0.6)
+            s1 = torch.minimum(s1, max_gap_end)
+            s0 = torch.minimum(s0, s1 - jp.min_gap_width)
             gap_s0[missing] = s0
             gap_s1[missing] = s1
             has_gap[missing] = True
 
+        # sanitize detected/synthetic gaps so jump always has a valid takeoff window.
+        if torch.any(has_gap):
+            hs0 = gap_s0[has_gap]
+            hw = (gap_s1[has_gap] - hs0).clamp(min=jp.min_gap_width, max=jp.max_gap_width)
+            hs0 = torch.clamp(hs0, min=jp.min_gap_start_dist)
+            hs1 = hs0 + hw
+            max_gap_end = torch.full_like(hs1, float(self.cfg.ranges.default_path_len) - max(float(jp.min_landing_runout), 0.6))
+            hs1 = torch.minimum(hs1, max_gap_end)
+            hs0 = torch.minimum(hs0, hs1 - jp.min_gap_width)
+            gap_s0[has_gap] = hs0
+            gap_s1[has_gap] = hs1
+
         # margins & arc parameters
         gap_w = (gap_s1 - gap_s0).clamp(min=0.0)
-        jp = self.cfg.jump_params
         if jp.takeoff_margin is None:
             takeoff = torch.clamp(0.2 + 0.4 * gap_w, min=jp.takeoff_margin_min, max=jp.takeoff_margin_max)
         else:
@@ -144,11 +162,21 @@ class JumpPathCommand(SegmentPathCommand):
         else:
             jump_h = torch.full_like(gap_w, float(jp.jump_height))
 
-        jump_s0 = torch.where(has_gap, gap_s0 - takeoff, gap_s0)
+        # enforce a minimum approach distance before takeoff to avoid stepping into the pit.
+        pre_jump_start = gap_s0 - takeoff
+        shift = torch.clamp(float(jp.min_jump_start_dist) - pre_jump_start, min=0.0)
+        gap_s0 = torch.where(has_gap, gap_s0 + shift, gap_s0)
+        gap_s1 = torch.where(has_gap, gap_s1 + shift, gap_s1)
+
+        jump_s0 = torch.where(has_gap, torch.maximum(gap_s0 - takeoff, torch.full_like(gap_s0, float(jp.min_jump_start_dist))), gap_s0)
         jump_s1 = torch.where(has_gap, gap_s1 + landing, gap_s1)
 
         # total path length
-        total_len = torch.where(has_gap & (jump_s1 > 0.0), jump_s1 + extension, torch.full_like(jump_s1, float(self.cfg.ranges.default_path_len)))
+        total_len = torch.where(
+            has_gap & (jump_s1 > 0.0),
+            torch.maximum(jump_s1 + extension, jump_s1 + float(jp.min_landing_runout)),
+            torch.full_like(jump_s1, float(self.cfg.ranges.default_path_len)),
+        )
         if self.cfg.jump_params.post_jump_distance > 0:
             total_len = torch.where(has_gap & (jump_s1 > 0.0), total_len + self.cfg.jump_params.post_jump_distance, total_len)
 
@@ -187,12 +215,12 @@ class JumpPathCommand(SegmentPathCommand):
         lead_s0 = s_zero
         lead_s1 = torch.where(has_gap, jump_s0, total_len)
         lead_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(lead_params, "v_ref", 1.0)
+        self._set_seg_param(lead_params, "v_ref", 1.25)
         self._append_segment(env_ids, self.SKILL_WALK, lead_s0, lead_s1, params=lead_params)
 
         # jump segment
         j_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(j_params, "v_ref", 1.0)
+        self._set_seg_param(j_params, "v_ref", 1.45)
         self._set_seg_param(j_params, "jump_height_ref", jump_h)
         self._append_segment(env_ids, self.SKILL_JUMP, jump_s0, jump_s1, params=j_params)
 
@@ -200,7 +228,7 @@ class JumpPathCommand(SegmentPathCommand):
         trail_s0 = torch.where(has_gap, jump_s1, total_len)
         trail_s1 = total_len
         trail_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(trail_params, "v_ref", 1.0)
+        self._set_seg_param(trail_params, "v_ref", 0.95)
         self._append_segment(env_ids, self.SKILL_WALK, trail_s0, trail_s1, params=trail_params)
 
         # ensure at least one segment (no-gap case -> lead walk kept)
@@ -208,6 +236,7 @@ class JumpPathCommand(SegmentPathCommand):
 
         # store jump buffers for external use
         self._has_gap[env_ids] = has_gap
+        self._jump_approach_start_dist[env_ids] = torch.clamp(jump_s0 - float(jp.approach_phase_window), min=0.0)
         self._jump_start_dist[env_ids] = jump_s0
         self._jump_end_dist[env_ids] = jump_s1
 

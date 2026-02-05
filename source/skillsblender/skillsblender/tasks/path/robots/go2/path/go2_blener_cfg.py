@@ -29,6 +29,8 @@ class Go2BlenerEnvCfg(BlenerPathEnvCfg):
         self.rewards.track_xy.weight = 7.0
         self.rewards.track_yaw.weight = 3.5
         self.rewards.track_velocity_along_path_exp.weight = 4.5
+        self.rewards.crouch_base_height_phase.weight = -3.0
+        self.rewards.crouch_base_height_phase.params["target_height"] = 0.24
 
         # Base stability (important for skill transitions)
         self.rewards.flat_orientation.weight = -1.0

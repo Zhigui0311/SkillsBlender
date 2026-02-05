@@ -117,6 +117,7 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.jump_params.jump_height = 0.45
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.ranges.waypoint_reach_threshold = 0.6
+        self.commands.path_tracking.ranges.default_path_len = 5.6
         self.commands.path_tracking.jump_params.scan_step = 0.05
         self.commands.path_tracking.jump_params.scan_width = 0.2
         self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "jump", "walk"]
@@ -129,6 +130,13 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.jump_params.landing_margin = 0.5
         self.commands.path_tracking.jump_params.post_jump_distance = 0.0  # 0 = stop at landing
         self.commands.path_tracking.jump_params.heading_offset_range = (0.0, 0.0)
+        self.commands.path_tracking.jump_params.min_gap_start_dist = 1.5
+        self.commands.path_tracking.jump_params.min_gap_width = 0.35
+        self.commands.path_tracking.jump_params.max_gap_width = 0.9
+        self.commands.path_tracking.jump_params.min_jump_start_dist = 1.0
+        self.commands.path_tracking.jump_params.min_landing_runout = 1.2
+        self.commands.path_tracking.jump_params.approach_phase_window = 1.1
+        self.commands.path_tracking.jump_params.fallback_gap_center_ratio = 0.60
         
         # self.rewards.flat_orientation.weight = -0.1
         # self.rewards.base_lin_vel_z.weight = -0.1
@@ -157,7 +165,7 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.rewards.base_acc.weight = 0.0
         self.rewards.track_yaw.weight = 0.0
         self.rewards.jump_landing_stability.weight = 2.5
-        self.rewards.jump_forward_velocity.weight = 0.0
+        self.rewards.jump_forward_velocity.weight = 1.5
         self.rewards.jump_pitch_control.weight = 0.0
         self.rewards.jump_air_time.weight = 0.0
         self.rewards.joint_deviation.weight = 0.0

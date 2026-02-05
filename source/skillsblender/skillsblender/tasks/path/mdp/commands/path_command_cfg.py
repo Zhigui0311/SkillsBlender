@@ -72,6 +72,16 @@ class JumpParams:
     scan_step: float = 0.1
     scan_width: float = 0.6
     gap_threshold: float = -0.15  # height drop threshold (m)
+    # geometric guards to avoid "immediate pit" or degenerate tiny gaps
+    min_gap_start_dist: float = 1.2
+    min_gap_width: float = 0.35
+    max_gap_width: float = 1.00
+    min_jump_start_dist: float = 0.9
+    min_landing_runout: float = 1.0
+    # jump approach phase window for reward gating
+    approach_phase_window: float = 1.0
+    # fallback synthetic-gap placement when scanner misses gaps
+    fallback_gap_center_ratio: float = 0.58
 
     # optional fixed params (when provided, override min/max logic)
     takeoff_margin: float | None = None
