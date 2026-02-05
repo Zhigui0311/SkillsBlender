@@ -45,7 +45,7 @@ class Go2WalkEnvCfg(WalkPathEnvCfg):
         self.rewards.joint_vel_limits.weight = -1.0
 
         # Joint symmetry
-        self.rewards.joint_mirror.weight = -0.3
+        self.rewards.joint_mirror.weight = -0.7
         self.rewards.joint_mirror.params["mirror_joints"] = [
             ["FR_(hip|thigh|calf).*", "RL_(hip|thigh|calf).*"],
             ["FL_(hip|thigh|calf).*", "RR_(hip|thigh|calf).*"],
@@ -56,12 +56,15 @@ class Go2WalkEnvCfg(WalkPathEnvCfg):
         self.rewards.action_rate_l2.weight = -0.01
 
         # Feet rewards: encourage trotting gait
-        self.rewards.feet_air_time.weight = 1.5
+        self.rewards.feet_air_time.weight = 0.8
         self.rewards.feet_air_time.params["threshold"] = 0.5
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = [".*_foot"]
+        self.rewards.air_time_variance.weight = -1.2
+        self.rewards.feet_slide.weight = -0.5
+        self.rewards.feet_contact_balance.weight = -1.5
 
         # Gait reward
-        self.rewards.feet_gait.weight = 1.0
+        self.rewards.feet_gait.weight = 2.0
         self.rewards.feet_gait.params["synced_feet_pair_names"] = (
             ("FL_foot", "RR_foot"),
             ("FR_foot", "RL_foot")
@@ -78,6 +81,13 @@ class Go2WalkEnvCfg(WalkPathEnvCfg):
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk"]
+        self.commands.path_tracking.sampling.yaw_type = "decoupled"
+        self.commands.path_tracking.sampling.start_heading = (-3.1415926, 3.1415926)
+        self.commands.path_tracking.sampling.end_to_start_pos = (3.0, 6.0, 0.0)
+        self.commands.path_tracking.sampling.sample_goal_distance = True
+
+        self.events.reset_base.params["pose_range"]["x"] = (-1.2, 1.2)
+        self.events.reset_base.params["pose_range"]["y"] = (-1.2, 1.2)
 
         # Disable zero-weight rewards
         if self.__class__.__name__ == "Go2WalkEnvCfg":

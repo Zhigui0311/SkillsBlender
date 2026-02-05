@@ -13,7 +13,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
 import torch
+
+import isaacsim.core.utils.prims as prim_utils
+from pxr import Usd
+from isaaclab.sim.spawners.spawner_cfg import SpawnerCfg
+from isaaclab.sim.utils import clone
+from isaaclab.utils import configclass
 
 
 @dataclass
@@ -92,3 +99,33 @@ def spawn_climb_ramp_for_envs(env, env_ids: torch.Tensor, start_pos_w: torch.Ten
         pos_w = torch.tensor([center_xy[0], center_xy[1] + spec.offset_y, spec.height * 0.5], device=device)
         quat_w = torch.tensor([1.0, 0.0, 0.0, 0.0], device=device)
         set_pose(scene, prim_path, pos_w, quat_w)
+
+
+@clone
+def spawn_xform(
+    prim_path: str,
+    cfg: "XformCfg",
+    translation: tuple[float, float, float] | None = None,
+    orientation: tuple[float, float, float, float] | None = None,
+    **kwargs,
+) -> Usd.Prim:
+    """Spawn an empty Xform prim (for parenting)."""
+    if not prim_utils.is_prim_path_valid(prim_path):
+        prim_utils.create_prim(prim_path, prim_type="Xform", translation=translation, orientation=orientation)
+    return prim_utils.get_prim_at_path(prim_path)
+
+
+@configclass
+class XformCfg(SpawnerCfg):
+    """Spawner config for an empty Xform prim."""
+
+    func: Callable = spawn_xform
+
+
+def spawn_crouch_obstacles(*args, **kwargs):
+    """
+    Placeholder entrypoint for crouch obstacle spawning.
+    Implement this with your project-specific spawn API when you want obstacles.
+    Currently a no-op so importing crouch_env_cfg won't fail.
+    """
+    return None

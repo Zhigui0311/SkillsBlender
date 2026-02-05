@@ -10,9 +10,9 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import torch
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Mapping
 
 from skillsblender.tasks.path.mdp.commands.path_command_cfg import (
     WalkParams,
@@ -37,7 +37,13 @@ class SegmentPlan:
 class SkillPathPlanner(ABC):
     """技能路径规划器接口"""
 
-    def __init__(self, cfg, device: torch.device):
+    def __init__(
+        self,
+        cfg,
+        device: torch.device,
+        num_seg_params: int = 6,
+        seg_param: Mapping[str, int] | None = None,
+    ):
         """初始化路径规划器
 
         Args:
@@ -46,6 +52,19 @@ class SkillPathPlanner(ABC):
         """
         self.cfg = cfg
         self.device = device
+        self.num_seg_params = max(int(num_seg_params), 0)
+        self.seg_param = dict(seg_param or {})
+
+    def _make_segment_params(self, num_envs: int) -> torch.Tensor:
+        """Create (N, P) param tensor; P can be zero."""
+        return torch.zeros(num_envs, self.num_seg_params, device=self.device)
+
+    def _set_segment_param(self, params: torch.Tensor, name: str, value):
+        """Set named slot only when the slot is configured in current width."""
+        idx = self.seg_param.get(name, None)
+        if idx is None or idx >= self.num_seg_params:
+            return
+        params[:, idx] = value
 
     @abstractmethod
     def plan_segment(
@@ -92,8 +111,14 @@ class SkillPathPlanner(ABC):
 class WalkPathPlanner(SkillPathPlanner):
     """行走路径规划器 - 生成简单的直线路径"""
 
-    def __init__(self, cfg: WalkParams, device: torch.device):
-        super().__init__(cfg, device)
+    def __init__(
+        self,
+        cfg: WalkParams,
+        device: torch.device,
+        num_seg_params: int = 6,
+        seg_param: Mapping[str, int] | None = None,
+    ):
+        super().__init__(cfg, device, num_seg_params=num_seg_params, seg_param=seg_param)
 
     def plan_segment(
         self,
@@ -125,9 +150,9 @@ class WalkPathPlanner(SkillPathPlanner):
         headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
 
         # 4. 构建 segment 参数
-        segment_params = torch.zeros(N, 6, device=device)
-        segment_params[:, 0] = self.cfg.v_ref  # 参考速度
-        segment_params[:, 2] = self.cfg.base_height_ref  # 参考高度
+        segment_params = self._make_segment_params(N)
+        self._set_segment_param(segment_params, "v_ref", self.cfg.v_ref)
+        self._set_segment_param(segment_params, "base_height_ref", self.cfg.base_height_ref)
 
         return SegmentPlan(
             waypoints=waypoints,
@@ -153,8 +178,14 @@ class WalkPathPlanner(SkillPathPlanner):
 class JumpPathPlanner(SkillPathPlanner):
     """跳跃路径规划器 - 检测 gap 并生成抛物线轨迹"""
 
-    def __init__(self, cfg: JumpParams, device: torch.device):
-        super().__init__(cfg, device)
+    def __init__(
+        self,
+        cfg: JumpParams,
+        device: torch.device,
+        num_seg_params: int = 6,
+        seg_param: Mapping[str, int] | None = None,
+    ):
+        super().__init__(cfg, device, num_seg_params=num_seg_params, seg_param=seg_param)
 
     def plan_segment(
         self,
@@ -231,9 +262,9 @@ class JumpPathPlanner(SkillPathPlanner):
         headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
 
         # 6. 构建 segment 参数
-        segment_params = torch.zeros(N, 6, device=device)
-        segment_params[:, 0] = 1.0  # v_ref
-        segment_params[:, 4] = jump_height  # jump_height_ref
+        segment_params = self._make_segment_params(N)
+        self._set_segment_param(segment_params, "v_ref", 1.0)
+        self._set_segment_param(segment_params, "jump_height_ref", jump_height)
 
         return SegmentPlan(
             waypoints=waypoints,
@@ -329,8 +360,15 @@ class JumpPathPlanner(SkillPathPlanner):
 class StairsPathPlanner(SkillPathPlanner):
     """楼梯路径规划器 - 生成楼梯路径（上楼/下楼）"""
 
-    def __init__(self, cfg: StairsParams, device: torch.device, direction: str = "up"):
-        super().__init__(cfg, device)
+    def __init__(
+        self,
+        cfg: StairsParams,
+        device: torch.device,
+        direction: str = "up",
+        num_seg_params: int = 6,
+        seg_param: Mapping[str, int] | None = None,
+    ):
+        super().__init__(cfg, device, num_seg_params=num_seg_params, seg_param=seg_param)
         self.direction = direction  # "up" or "down"
 
     def plan_segment(
@@ -376,9 +414,9 @@ class StairsPathPlanner(SkillPathPlanner):
         headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
 
         # 4. 构建 segment 参数
-        segment_params = torch.zeros(N, 6, device=device)
-        segment_params[:, 0] = 0.5  # v_ref（楼梯上较慢）
-        segment_params[:, 2] = self.cfg.step_height  # base_height_ref
+        segment_params = self._make_segment_params(N)
+        self._set_segment_param(segment_params, "v_ref", 0.5)
+        self._set_segment_param(segment_params, "base_height_ref", self.cfg.step_height)
 
         skill_id = 2 if self.direction == "up" else 3  # stairs_up / stairs_down
 
@@ -402,8 +440,14 @@ class StairsPathPlanner(SkillPathPlanner):
 class ClimbPathPlanner(SkillPathPlanner):
     """攀爬路径规划器 - 生成斜坡路径"""
 
-    def __init__(self, cfg: ClimbParams, device: torch.device):
-        super().__init__(cfg, device)
+    def __init__(
+        self,
+        cfg: ClimbParams,
+        device: torch.device,
+        num_seg_params: int = 6,
+        seg_param: Mapping[str, int] | None = None,
+    ):
+        super().__init__(cfg, device, num_seg_params=num_seg_params, seg_param=seg_param)
 
     def plan_segment(
         self,
@@ -438,9 +482,9 @@ class ClimbPathPlanner(SkillPathPlanner):
         headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
 
         # 4. 构建 segment 参数
-        segment_params = torch.zeros(N, 6, device=device)
-        segment_params[:, 0] = 0.7  # v_ref（攀爬较慢）
-        segment_params[:, 2] = climb_height  # base_height_ref
+        segment_params = self._make_segment_params(N)
+        self._set_segment_param(segment_params, "v_ref", 0.7)
+        self._set_segment_param(segment_params, "base_height_ref", climb_height)
 
         return SegmentPlan(
             waypoints=waypoints,
@@ -462,8 +506,14 @@ class ClimbPathPlanner(SkillPathPlanner):
 class CrouchPathPlanner(SkillPathPlanner):
     """蹲伏路径规划器 - 生成低姿态路径"""
 
-    def __init__(self, cfg: CrouchParams, device: torch.device):
-        super().__init__(cfg, device)
+    def __init__(
+        self,
+        cfg: CrouchParams,
+        device: torch.device,
+        num_seg_params: int = 6,
+        seg_param: Mapping[str, int] | None = None,
+    ):
+        super().__init__(cfg, device, num_seg_params=num_seg_params, seg_param=seg_param)
 
     def plan_segment(
         self,
@@ -497,9 +547,9 @@ class CrouchPathPlanner(SkillPathPlanner):
         headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
 
         # 4. 构建 segment 参数（低姿态）
-        segment_params = torch.zeros(N, 6, device=device)
-        segment_params[:, 0] = 0.5  # v_ref（蹲伏较慢）
-        segment_params[:, 2] = self.cfg.base_height_ref  # 低姿态高度
+        segment_params = self._make_segment_params(N)
+        self._set_segment_param(segment_params, "v_ref", 0.5)
+        self._set_segment_param(segment_params, "base_height_ref", self.cfg.base_height_ref)
 
         return SegmentPlan(
             waypoints=waypoints,
@@ -516,3 +566,38 @@ class CrouchPathPlanner(SkillPathPlanner):
     ) -> torch.Tensor:
         """验证蹲伏地形"""
         return torch.tensor([True], device=self.device)
+
+
+@dataclass(frozen=True)
+class SkillPlannerRegistration:
+    """Planner registration entry used by TerrainAwarePathGenerator."""
+
+    planner_cls: type[SkillPathPlanner]
+    params_attr: str
+    planner_kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+def build_default_skill_planner_registry() -> dict[str, SkillPlannerRegistration]:
+    """Default registry for built-in skill planners.
+
+    Add new skills here (name + planner + params attr) to avoid touching the generator.
+    """
+    return {
+        "walk": SkillPlannerRegistration(WalkPathPlanner, "walk_params"),
+        "jump": SkillPlannerRegistration(JumpPathPlanner, "jump_params"),
+        "stairs_up": SkillPlannerRegistration(
+            StairsPathPlanner,
+            "stairs_params",
+            planner_kwargs={"direction": "up"},
+        ),
+        "stairs_down": SkillPlannerRegistration(
+            StairsPathPlanner,
+            "stairs_params",
+            planner_kwargs={"direction": "down"},
+        ),
+        "climb": SkillPlannerRegistration(ClimbPathPlanner, "climb_params"),
+        "crouch": SkillPlannerRegistration(CrouchPathPlanner, "crouch_params"),
+    }
+
+
+DEFAULT_SKILL_PLANNER_REGISTRY = build_default_skill_planner_registry()

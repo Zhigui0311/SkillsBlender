@@ -27,7 +27,7 @@ class SegmentPathCommand(CommandTerm):
         "stairs_up",
         "stairs_down",
         "crouch",
-        "sidestep",
+        "sidestep", #占位技能
         "climb",
     ]
     SKILL_ID = {name: i for i, name in enumerate(SKILL_NAMES)}
@@ -68,7 +68,8 @@ class SegmentPathCommand(CommandTerm):
         self.num_lookahead_waypoints = cfg.ranges.num_lookahead_waypoints
         self.max_segments = cfg.ranges.max_segments
         self.num_skills = self.NUM_SKILLS
-        self.num_seg_params = cfg.ranges.num_seg_params
+        self.num_seg_params = max(int(cfg.ranges.num_seg_params), 0)
+        self.has_seg_params = self.num_seg_params > 0
 
         self.t_alpha = torch.linspace(0, 1, self.num_waypoints, device=self.device)
 
@@ -84,7 +85,11 @@ class SegmentPathCommand(CommandTerm):
         self._seg_skill = torch.zeros(self.num_envs, self.max_segments, dtype=torch.long, device=self.device)
         self._seg_s0 = torch.zeros(self.num_envs, self.max_segments, device=self.device)
         self._seg_s1 = torch.zeros(self.num_envs, self.max_segments, device=self.device)
-        self._seg_params = torch.zeros(self.num_envs, self.max_segments, self.num_seg_params, device=self.device)
+        self._seg_params = (
+            torch.zeros(self.num_envs, self.max_segments, self.num_seg_params, device=self.device)
+            if self.has_seg_params
+            else None
+        )
 
         # current segment state (derived each step)
         self._cur_seg_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -107,6 +112,36 @@ class SegmentPathCommand(CommandTerm):
         # observation outputs
         self.obs_slices = torch.zeros(self.num_envs, self.num_lookahead_waypoints, 4, device=self.device)
         self.obs_meta = torch.zeros(self.num_envs, self._meta_dim(), device=self.device)
+
+    def _new_seg_params(self, batch_size: int) -> torch.Tensor | None:
+        """Create per-segment param tensor; returns None when params are disabled."""
+        if not self.has_seg_params:
+            return None
+        return torch.zeros(batch_size, self.num_seg_params, device=self.device)
+
+    def _new_seg_param_vec(self) -> torch.Tensor | None:
+        """Create a single segment param vector; returns None when params are disabled."""
+        if not self.has_seg_params:
+            return None
+        return torch.zeros(self.num_seg_params, device=self.device)
+
+    def _set_seg_param(self, params: torch.Tensor | None, name: str, value):
+        """Set a named param slot if it exists in the current param-width."""
+        if params is None:
+            return
+        idx = self.SEG_PARAM.get(name, None)
+        if idx is None or idx >= self.num_seg_params:
+            return
+        params[:, idx] = value
+
+    def _set_seg_param_vec(self, params: torch.Tensor | None, name: str, value):
+        """Set a named param slot on a 1D param vector if the slot exists."""
+        if params is None:
+            return
+        idx = self.SEG_PARAM.get(name, None)
+        if idx is None or idx >= self.num_seg_params:
+            return
+        params[idx] = value
 
     # ---------------- debug helpers ----------------
     def skill_name(self, skill_id: int) -> str:
@@ -192,13 +227,59 @@ class SegmentPathCommand(CommandTerm):
         rel = self.robot.data.root_pos_w[:, :2] - self._planned_start_pos[:, :2]
         return torch.sum(rel * self._planned_forward_dir, dim=-1)
 
+    @property
+    def current_skill_id(self) -> torch.Tensor:
+        """Current active skill-id for each environment."""
+        self._select_current_segment()
+        env_ids = torch.arange(self.num_envs, device=self.device)
+        return self._seg_skill[env_ids, self._cur_seg_idx]
+
+    def is_in_skill_phase(self, skill: str | int) -> torch.Tensor:
+        """Return a per-env boolean mask for whether the current segment matches `skill`."""
+        if isinstance(skill, str):
+            if skill not in self.SKILL_ID:
+                return torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+            skill_id = int(self.SKILL_ID[skill])
+        else:
+            skill_id = int(skill)
+        return self.current_skill_id == skill_id
+
+    @property
+    def is_in_walk_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("walk")
+
+    @property
+    def is_in_jump_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("jump")
+
+    @property
+    def is_in_stairs_up_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("stairs_up")
+
+    @property
+    def is_in_stairs_down_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("stairs_down")
+
+    @property
+    def is_in_stairs_phase(self) -> torch.Tensor:
+        return self.is_in_stairs_up_phase | self.is_in_stairs_down_phase
+
+    @property
+    def is_in_crouch_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("crouch")
+
+    @property
+    def is_in_climb_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("climb")
+
     # ----------------- segment table API -----------------
     def _clear_segments(self, env_ids: torch.Tensor):
         self._num_segs[env_ids] = 0
         self._seg_skill[env_ids, :] = 0
         self._seg_s0[env_ids, :] = 0.0
         self._seg_s1[env_ids, :] = 0.0
-        self._seg_params[env_ids, :, :] = 0.0
+        if self.has_seg_params and self._seg_params is not None:
+            self._seg_params[env_ids, :, :] = 0.0
 
     def _append_segment(
         self,
@@ -226,8 +307,15 @@ class SegmentPathCommand(CommandTerm):
         self._seg_skill[env_sel, idx] = int(skill_id)
         self._seg_s0[env_sel, idx] = s0[mask]
         self._seg_s1[env_sel, idx] = s1[mask]
-        if params is not None:
-            self._seg_params[env_sel, idx, :] = params[mask]
+        if self.has_seg_params and self._seg_params is not None and params is not None:
+            p = params[mask]
+            if p.shape[-1] != self.num_seg_params:
+                if p.shape[-1] > self.num_seg_params:
+                    p = p[:, : self.num_seg_params]
+                else:
+                    pad = torch.zeros(p.shape[0], self.num_seg_params - p.shape[-1], device=self.device)
+                    p = torch.cat([p, pad], dim=-1)
+            self._seg_params[env_sel, idx, :] = p
         self._num_segs[env_sel] = self._num_segs[env_sel] + 1
 
     def _select_current_segment(self):
@@ -297,7 +385,7 @@ class SegmentPathCommand(CommandTerm):
         cur_s0 = self._seg_s0[b, cur_idx]
         cur_s1 = self._seg_s1[b, cur_idx]
         cur_skill = self._seg_skill[b, cur_idx]
-        cur_params = self._seg_params[b, cur_idx, :]
+        cur_params = self._seg_params[b, cur_idx, :] if (self.has_seg_params and self._seg_params is not None) else None
 
         cur_den = (cur_s1 - cur_s0).clamp(min=1e-3)
         cur_prog = ((s - cur_s0) / cur_den).clamp(0.0, 1.0)
@@ -315,7 +403,8 @@ class SegmentPathCommand(CommandTerm):
             onehot.scatter_(1, cur_skill[:, None].clamp(0, self.num_skills - 1), 1.0)
             parts.append(onehot)
 
-        parts.append(cur_params)
+        if cur_params is not None:
+            parts.append(cur_params)
 
         if getattr(self.cfg.ranges, "include_next_segment", True):
             next_idx = torch.clamp(cur_idx + 1, max=self.max_segments - 1)
@@ -326,7 +415,7 @@ class SegmentPathCommand(CommandTerm):
 
             next_s0 = self._seg_s0[b, next_idx]
             next_skill = self._seg_skill[b, next_idx]
-            next_params = self._seg_params[b, next_idx, :]
+            next_params = self._seg_params[b, next_idx, :] if (self.has_seg_params and self._seg_params is not None) else None
             dist_to_next_start = (next_s0 - s).clamp(-clip, clip) / clip
 
             if getattr(self.cfg.ranges, "include_skill_onehot", True):
@@ -335,7 +424,8 @@ class SegmentPathCommand(CommandTerm):
                 parts.append(n_oh)
 
             parts.append(dist_to_next_start[:, None])
-            parts.append(next_params)
+            if next_params is not None:
+                parts.append(next_params)
 
         self.obs_meta = torch.cat(parts, dim=-1)
 

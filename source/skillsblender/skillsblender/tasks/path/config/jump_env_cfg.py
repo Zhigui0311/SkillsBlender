@@ -220,7 +220,7 @@ class CommandsCfg:
     
     
     path_tracking = mdp.commands.PathCommandCfg(
-        class_type=mdp.commands.PlannerPathCommand,
+        class_type=mdp.commands.JumpPathCommand,
         asset_name="robot",
         resampling_time_range=(3.0, 15.0), # resample every 10-15s
         jump_params=mdp.commands.PathCommandCfg.JumpParams(
@@ -694,8 +694,17 @@ class JumpPathEnvCfg(PathEnvCfg):
 
         # Ensure command class_type is set (may be MISSING during config validation)
         if getattr(self.commands.path_tracking, "class_type", None) in (None, MISSING):
-            self.commands.path_tracking.class_type = mdp.commands.PlannerPathCommand
-        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["jump"]
+            self.commands.path_tracking.class_type = mdp.commands.JumpPathCommand
+
+        # Use explicit walk->jump->walk structure for clearer takeoff and landing phases.
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "jump", "walk"]
+        self.commands.path_tracking.sampling.yaw_type = "fixed"
+        self.commands.path_tracking.sampling.start_heading = (0.0, 0.0)
+
+        # Keep starts aligned with forward gap direction for reliable scanner detection.
+        self.events.reset_base.params["pose_range"]["x"] = (-0.2, 0.2)
+        self.events.reset_base.params["pose_range"]["y"] = (-0.2, 0.2)
+        self.events.reset_base.params["pose_range"]["yaw"] = (-0.25, 0.25)
 
         self.sim.dt = 0.005 # 200Hz Simulation frequency
         self.decimation = 4 # 50Hz control frequency

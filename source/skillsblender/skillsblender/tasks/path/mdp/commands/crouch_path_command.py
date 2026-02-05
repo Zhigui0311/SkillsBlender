@@ -18,6 +18,10 @@ class CrouchPathCommand(SegmentPathCommand):
     def __init__(self, cfg: PathCommandCfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
 
+    @property
+    def is_in_crouch_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("crouch")
+
     def _resample_command(self, env_ids: torch.Tensor):
         self._set_planned_frame_from_robot(env_ids)
 
@@ -46,19 +50,19 @@ class CrouchPathCommand(SegmentPathCommand):
         zero = torch.zeros(len(env_ids), device=self.device)
 
         # Leading walk segment
-        lead_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        lead_params[:, self.SEG_PARAM["v_ref"]] = 1.0
+        lead_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(lead_params, "v_ref", 1.0)
         self._append_segment(env_ids, self.SKILL_ID["walk"], zero, crouch_s0, params=lead_params)
 
         # Crouch segment
-        crouch_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        crouch_params[:, self.SEG_PARAM["v_ref"]] = 0.7  # Slower speed
-        crouch_params[:, self.SEG_PARAM["base_height_ref"]] = float(cp.base_height_ref)  # Lower height
+        crouch_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(crouch_params, "v_ref", 0.7)
+        self._set_seg_param(crouch_params, "base_height_ref", float(cp.base_height_ref))
         self._append_segment(env_ids, self.SKILL_ID["crouch"], crouch_s0, crouch_s1, params=crouch_params)
 
         # Trailing walk segment
-        trail_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        trail_params[:, self.SEG_PARAM["v_ref"]] = 1.0
+        trail_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(trail_params, "v_ref", 1.0)
         self._append_segment(env_ids, self.SKILL_ID["walk"], crouch_s1, total_len, params=trail_params)
 
         self._num_segs[env_ids] = torch.clamp(self._num_segs[env_ids], min=1)

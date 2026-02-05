@@ -264,7 +264,7 @@ class CommandsCfg:
         asset_name="robot",
         resampling_time_range=(3.0, 15.0), # resample every 10-15s
         
-        inpoints=mdp.commands.PathCommandCfg.InterpolationPoints(
+        sampling=mdp.commands.PathCommandCfg.Sampling(
             path_type="linear",
             height_change=False,
             end_to_start_pos=(2.5, 6.0, 0), # 终点范围
@@ -435,6 +435,11 @@ class RewardsCfg:
         weight=0.0,
         params={"std": 0.6, "command_name": "path_tracking", "desired_speed": 1.0},
     )
+    climb_track_velocity_phase = RewTerm(
+        func=mdp.climb_track_velocity_along_path_exp,
+        weight=0.0,
+        params={"std": 0.6, "command_name": "path_tracking", "desired_speed": 0.65},
+    )
 
     stalling_penalty = RewTerm(
         func=mdp.stalling_penalty,
@@ -444,6 +449,11 @@ class RewardsCfg:
     
     #base
     base_height_l2 = RewTerm(func=mdp.base_height_l2, params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")}, weight=-1.0)
+    crouch_base_height_phase = RewTerm(
+        func=mdp.crouch_base_height_l2,
+        weight=0.0,
+        params={"target_height": 0.24, "command_name": "path_tracking", "asset_cfg": SceneEntityCfg("robot")},
+    )
     flat_orientation = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
     base_lin_vel_z = RewTerm(func=mdp.lin_vel_z_l2, weight=0.0)
     base_ang_vel_xy = RewTerm(func=mdp.ang_vel_xy_l2, weight=0.0)
@@ -585,6 +595,19 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces"),
         },
     )
+
+    feet_contact_balance = RewTerm(
+        func=mdp.feet_contact_balance,
+        weight=0.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces"),
+            "left_feet": ("FL_foot", "RL_foot"),
+            "right_feet": ("FR_foot", "RR_foot"),
+            "front_feet": ("FL_foot", "FR_foot"),
+            "rear_feet": ("RL_foot", "RR_foot"),
+            "threshold": 1.0,
+        },
+    )
     
     feet_height = RewTerm(
         func=mdp.feet_height_body,
@@ -599,6 +622,17 @@ class RewardsCfg:
     )
     feet_air_time = RewTerm(
         func=mdp.feet_air_time_1,
+        weight=0.0,
+        params={
+            "command_name": "path_tracking",
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "threshold": 0.5,
+            "dis_threshold": 0.25,
+            "heading_threshold": 0.5,
+        },
+    )
+    stairs_feet_air_time_phase = RewTerm(
+        func=mdp.stairs_feet_air_time,
         weight=0.0,
         params={
             "command_name": "path_tracking",

@@ -11,12 +11,16 @@ if TYPE_CHECKING:
 
 
 class ClimbPathCommand(SegmentPathCommand):
-    """Path with a CLIMB segment (planned ramp)."""
+    """Path with a CLIMB segment (step-like rise + top traversal)."""
 
     cfg: PathCommandCfg
 
     def __init__(self, cfg: PathCommandCfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
+
+    @property
+    def is_in_climb_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("climb")
 
     def _resample_command(self, env_ids: torch.Tensor):
         self._set_planned_frame_from_robot(env_ids)
@@ -41,7 +45,13 @@ class ClimbPathCommand(SegmentPathCommand):
         dist_at_wp = alpha.squeeze(-1) * total_len[:, None]
         inside = (dist_at_wp >= climb_s0[:, None]) & (dist_at_wp <= climb_s1[:, None])
         t = ((dist_at_wp - climb_s0[:, None]) / (climb_s1[:, None] - climb_s0[:, None]).clamp(min=1e-3)).clamp(0.0, 1.0)
-        z_off = float(cp.climb_height) * t
+
+        # Step-like rise: climb most of the height early, then keep a top plateau.
+        rise_ratio = 0.35
+        t_rise = (t / rise_ratio).clamp(0.0, 1.0)
+        smooth = 3.0 * t_rise * t_rise - 2.0 * t_rise * t_rise * t_rise
+        z_rise = float(cp.climb_height) * smooth
+        z_off = torch.where(t <= rise_ratio, z_rise, torch.full_like(z_rise, float(cp.climb_height)))
         pos[..., 2] = pos[..., 2] + torch.where(inside, z_off, torch.zeros_like(z_off))
 
         yaw_wp = self._planned_yaw[env_ids][:, None].repeat(1, self.num_waypoints)
@@ -51,17 +61,18 @@ class ClimbPathCommand(SegmentPathCommand):
         self._clear_segments(env_ids)
         zero = torch.zeros(len(env_ids), device=self.device)
 
-        lead_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        lead_params[:, self.SEG_PARAM["v_ref"]] = 1.0
+        lead_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(lead_params, "v_ref", 1.0)
         self._append_segment(env_ids, self.SKILL_ID["walk"], zero, climb_s0, params=lead_params)
 
-        cl_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        cl_params[:, self.SEG_PARAM["v_ref"]] = 0.9
-        cl_params[:, self.SEG_PARAM["misc"]] = float(cp.climb_height)
+        cl_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(cl_params, "v_ref", 0.65)
+        self._set_seg_param(cl_params, "clearance_ref", 0.18)
+        self._set_seg_param(cl_params, "misc", float(cp.climb_height))
         self._append_segment(env_ids, self.SKILL_ID["climb"], climb_s0, climb_s1, params=cl_params)
 
-        trail_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        trail_params[:, self.SEG_PARAM["v_ref"]] = 1.0
+        trail_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(trail_params, "v_ref", 1.0)
         self._append_segment(env_ids, self.SKILL_ID["walk"], climb_s1, total_len, params=trail_params)
 
         self._num_segs[env_ids] = torch.clamp(self._num_segs[env_ids], min=1)

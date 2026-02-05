@@ -75,7 +75,7 @@ def curriculum_path_length(
     # 如果平均奖励超过阈值，增加路径长度
     if mean_reward > reward_threshold:
         # 获取当前路径长度范围
-        # Note: PathCommandCfg uses ranges.default_path_len, not inpoints.end_to_start_pos
+        # Note: PathCommandCfg uses ranges.default_path_len, not sampling.end_to_start_pos
         current_len = command.cfg.ranges.default_path_len
 
         # 计算新的路径长度范围（逐步接近最终范围）
@@ -86,6 +86,199 @@ def curriculum_path_length(
         command.cfg.ranges.default_path_len = new_len
 
         print(f"[Curriculum] Path length updated: {new_len:.1f}m")
+
+
+def curriculum_crouch_roof_height(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int] | torch.Tensor | None,
+    asset_name: str,
+    initial_height: float,
+    final_height: float,
+    step_size: float,
+    reward_threshold: float,
+    roof_thickness: float = 0.08,
+    clearance: float = 0.04,
+    command_name: str = "path_tracking",
+) -> dict[str, float] | None:
+    """
+    逐步降低 crouch 顶棚高度，并同步更新目标 base height。
+    """
+    mean_reward = _mean_episode_reward(env, env_ids)
+    if mean_reward is None:
+        return None
+
+    roof = env.scene[asset_name]
+    if roof is None:
+        return None
+
+    cur_height = float(roof.data.root_pos_w[:, 2].mean().item())
+    new_height = cur_height
+
+    if mean_reward > reward_threshold:
+        new_height = max(final_height, cur_height - step_size)
+
+        if abs(new_height - cur_height) > 1e-6:
+            pos = roof.data.root_pos_w.clone()
+            pos[:, 2] = new_height
+            quat = roof.data.root_quat_w.clone()
+            root_pose = torch.cat([pos, quat], dim=-1)
+            roof.write_root_pose_to_sim(root_pose, env_ids=env_ids)
+
+            # Keep optional second roof (if present) at the same curriculum height.
+            try:
+                roof_tail = env.scene["crouch_roof_tail"]
+            except Exception:
+                roof_tail = None
+            if roof_tail is not None:
+                tail_pos = roof_tail.data.root_pos_w.clone()
+                tail_pos[:, 2] = new_height
+                tail_quat = roof_tail.data.root_quat_w.clone()
+                tail_pose = torch.cat([tail_pos, tail_quat], dim=-1)
+                roof_tail.write_root_pose_to_sim(tail_pose, env_ids=env_ids)
+
+            # update command + reward target height
+            target_height = new_height - roof_thickness * 0.5 - clearance
+            try:
+                cmd = env.command_manager.get_term(command_name)
+                if hasattr(cmd.cfg, "crouch_params"):
+                    cmd.cfg.crouch_params.base_height_ref = target_height
+            except Exception:
+                pass
+            if hasattr(env, "rewards") and getattr(env.rewards, "base_height_l2", None) is not None:
+                env.rewards.base_height_l2.params["target_height"] = target_height
+
+            print(f"[Crouch Curriculum] Roof height updated: {new_height:.2f}m (target base {target_height:.2f}m)")
+
+    return {"roof_height": new_height}
+
+
+def curriculum_stairs_difficulty(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int] | torch.Tensor | None,
+    command_name: str,
+    reward_threshold: float,
+    initial_step_height: float = 0.08,
+    final_step_height: float = 0.14,
+    step_height_step: float = 0.005,
+    initial_stairs_len: float = 1.6,
+    final_stairs_len: float = 2.2,
+    stairs_len_step: float = 0.05,
+) -> dict[str, float] | None:
+    """
+    Increase stairs difficulty by raising step height and extending stairs length.
+    """
+    mean_reward = _mean_episode_reward(env, env_ids)
+    if mean_reward is None:
+        return None
+
+    try:
+        command = env.command_manager.get_term(command_name)
+    except Exception:
+        return None
+    if not hasattr(command.cfg, "stairs_params"):
+        return None
+
+    stairs_cfg = command.cfg.stairs_params
+    cur_h = float(getattr(stairs_cfg, "step_height", initial_step_height))
+    cur_len = float(getattr(stairs_cfg, "stairs_len", initial_stairs_len))
+    cur_h = max(cur_h, initial_step_height)
+    cur_len = max(cur_len, initial_stairs_len)
+
+    new_h = cur_h
+    new_len = cur_len
+    if mean_reward > reward_threshold:
+        new_h = min(final_step_height, cur_h + step_height_step)
+        new_len = min(final_stairs_len, cur_len + stairs_len_step)
+        if abs(new_h - cur_h) > 1e-6:
+            stairs_cfg.step_height = new_h
+        if abs(new_len - cur_len) > 1e-6:
+            stairs_cfg.stairs_len = new_len
+        if abs(new_h - cur_h) > 1e-6 or abs(new_len - cur_len) > 1e-6:
+            print(
+                "[Stairs Curriculum] step_height/stairs_len updated: "
+                f"{new_h:.3f}m / {new_len:.2f}m"
+            )
+
+    return {"step_height": new_h, "stairs_len": new_len}
+
+
+def curriculum_climb_difficulty(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int] | torch.Tensor | None,
+    command_name: str,
+    reward_threshold: float,
+    initial_climb_height: float = 0.56,
+    final_climb_height: float = 0.78,
+    climb_height_step: float = 0.02,
+    initial_climb_len: float = 1.30,
+    final_climb_len: float = 0.90,
+    climb_len_step: float = 0.03,
+    step_asset_name: str = "climb_step",
+    top_asset_name: str = "climb_top",
+    step_half_height: float = 0.28,
+    top_half_thickness: float = 0.05,
+) -> dict[str, float] | None:
+    """
+    Increase climb difficulty by raising ledge height and shortening climb length (steeper).
+    """
+    mean_reward = _mean_episode_reward(env, env_ids)
+    if mean_reward is None:
+        return None
+
+    try:
+        command = env.command_manager.get_term(command_name)
+    except Exception:
+        return None
+    if not hasattr(command.cfg, "climb_params"):
+        return None
+
+    climb_cfg = command.cfg.climb_params
+    cur_h = float(getattr(climb_cfg, "climb_height", initial_climb_height))
+    cur_len = float(getattr(climb_cfg, "climb_len", initial_climb_len))
+    cur_h = max(cur_h, initial_climb_height)
+    cur_len = max(cur_len, final_climb_len)
+
+    new_h = cur_h
+    new_len = cur_len
+    if mean_reward > reward_threshold:
+        new_h = min(final_climb_height, cur_h + climb_height_step)
+        new_len = max(final_climb_len, cur_len - climb_len_step)
+        if abs(new_h - cur_h) > 1e-6:
+            climb_cfg.climb_height = new_h
+        if abs(new_len - cur_len) > 1e-6:
+            climb_cfg.climb_len = new_len
+
+        # Sync scene ledge/platform heights when those assets exist.
+        if abs(new_h - cur_h) > 1e-6:
+            try:
+                step_asset = env.scene[step_asset_name]
+            except Exception:
+                step_asset = None
+            if step_asset is not None:
+                step_pos = step_asset.data.root_pos_w.clone()
+                step_pos[:, 2] = new_h - step_half_height
+                step_quat = step_asset.data.root_quat_w.clone()
+                step_pose = torch.cat([step_pos, step_quat], dim=-1)
+                step_asset.write_root_pose_to_sim(step_pose, env_ids=env_ids)
+
+            try:
+                top_asset = env.scene[top_asset_name]
+            except Exception:
+                top_asset = None
+            if top_asset is not None:
+                top_pos = top_asset.data.root_pos_w.clone()
+                top_pos[:, 2] = new_h + top_half_thickness
+                top_quat = top_asset.data.root_quat_w.clone()
+                top_pose = torch.cat([top_pos, top_quat], dim=-1)
+                top_asset.write_root_pose_to_sim(top_pose, env_ids=env_ids)
+
+        if abs(new_h - cur_h) > 1e-6 or abs(new_len - cur_len) > 1e-6:
+            print(
+                "[Climb Curriculum] climb_height/climb_len updated: "
+                f"{new_h:.3f}m / {new_len:.2f}m"
+            )
+
+    return {"climb_height": new_h, "climb_len": new_len}
 
 
 def curriculum_velocity_requirement(
@@ -503,8 +696,8 @@ def curriculum_jump_heading_offset_range(
 #     # 如果平均奖励超过阈值，增加路径长度
 #     if current_reward > reward_threshold:
 #         # 获取当前路径长度范围
-#         current_min = command.cfg.inpoints.end_to_start_pos[0]
-#         current_max = command.cfg.inpoints.end_to_start_pos[1]
+#         current_min = command.cfg.sampling.end_to_start_pos[0]
+#         current_max = command.cfg.sampling.end_to_start_pos[1]
 
 #         # 计算新的路径长度范围（逐步接近最终范围）
 #         step_size = 0.5  # 每次增加 0.5m
@@ -512,7 +705,7 @@ def curriculum_jump_heading_offset_range(
 #         new_max = min(current_max + step_size, final_range[1])
 
 #         # 更新路径长度范围
-#         command.cfg.inpoints.end_to_start_pos = (new_min, new_max, 0)
+#         command.cfg.sampling.end_to_start_pos = (new_min, new_max, 0)
 
 #         print(f"[Curriculum] Path length updated: ({new_min:.1f}, {new_max:.1f})")
 

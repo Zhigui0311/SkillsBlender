@@ -58,40 +58,40 @@ TAG_INT_TO_SKILL_NAME = {
 # 默认 handler：walk（可复用）
 # ----------------------------
 def _append_walk(cmd: "ParkourPathCommand", env_id_1: torch.Tensor, s0: float, s1: float):
-    p = torch.zeros(cmd.num_seg_params, device=cmd.device)
-    p[cmd.SEG_PARAM["v_ref"]] = 1.0
-    cmd._append_segment(env_id_1, cmd.SKILL_ID["walk"], s0, s1, p.unsqueeze(0))
+    p = cmd._new_seg_param_vec()
+    cmd._set_seg_param_vec(p, "v_ref", 1.0)
+    cmd._append_segment(env_id_1, cmd.SKILL_ID["walk"], s0, s1, None if p is None else p.unsqueeze(0))
 
 
 # ----------------------------
 # 默认 handler：jump/stairs/climb/crouch（你后续可替换参数逻辑）
 # ----------------------------
 def _append_jump(cmd: "ParkourPathCommand", env_id_1: torch.Tensor, s0: float, s1: float):
-    p = torch.zeros(cmd.num_seg_params, device=cmd.device)
-    p[cmd.SEG_PARAM["v_ref"]] = 1.0
-    p[cmd.SEG_PARAM["jump_height_ref"]] = 0.6
-    cmd._append_segment(env_id_1, cmd.SKILL_ID["jump"], s0, s1, p.unsqueeze(0))
+    p = cmd._new_seg_param_vec()
+    cmd._set_seg_param_vec(p, "v_ref", 1.0)
+    cmd._set_seg_param_vec(p, "jump_height_ref", 0.6)
+    cmd._append_segment(env_id_1, cmd.SKILL_ID["jump"], s0, s1, None if p is None else p.unsqueeze(0))
 
 
 def _append_stairs_up(cmd: "ParkourPathCommand", env_id_1: torch.Tensor, s0: float, s1: float):
-    p = torch.zeros(cmd.num_seg_params, device=cmd.device)
-    p[cmd.SEG_PARAM["v_ref"]] = 0.9
-    p[cmd.SEG_PARAM["clearance_ref"]] = 0.12
-    cmd._append_segment(env_id_1, cmd.SKILL_ID["stairs_up"], s0, s1, p.unsqueeze(0))
+    p = cmd._new_seg_param_vec()
+    cmd._set_seg_param_vec(p, "v_ref", 0.9)
+    cmd._set_seg_param_vec(p, "clearance_ref", 0.12)
+    cmd._append_segment(env_id_1, cmd.SKILL_ID["stairs_up"], s0, s1, None if p is None else p.unsqueeze(0))
 
 
 def _append_climb(cmd: "ParkourPathCommand", env_id_1: torch.Tensor, s0: float, s1: float):
-    p = torch.zeros(cmd.num_seg_params, device=cmd.device)
-    p[cmd.SEG_PARAM["v_ref"]] = 0.8
-    p[cmd.SEG_PARAM["misc"]] = 0.25
-    cmd._append_segment(env_id_1, cmd.SKILL_ID["climb"], s0, s1, p.unsqueeze(0))
+    p = cmd._new_seg_param_vec()
+    cmd._set_seg_param_vec(p, "v_ref", 0.8)
+    cmd._set_seg_param_vec(p, "misc", 0.25)
+    cmd._append_segment(env_id_1, cmd.SKILL_ID["climb"], s0, s1, None if p is None else p.unsqueeze(0))
 
 
 def _append_crouch(cmd: "ParkourPathCommand", env_id_1: torch.Tensor, s0: float, s1: float):
-    p = torch.zeros(cmd.num_seg_params, device=cmd.device)
-    p[cmd.SEG_PARAM["v_ref"]] = 0.8
-    p[cmd.SEG_PARAM["base_height_ref"]] = 0.25
-    cmd._append_segment(env_id_1, cmd.SKILL_ID["crouch"], s0, s1, p.unsqueeze(0))
+    p = cmd._new_seg_param_vec()
+    cmd._set_seg_param_vec(p, "v_ref", 0.8)
+    cmd._set_seg_param_vec(p, "base_height_ref", 0.25)
+    cmd._append_segment(env_id_1, cmd.SKILL_ID["crouch"], s0, s1, None if p is None else p.unsqueeze(0))
 
 
 # 预注册默认技能（以后你新增技能，只要 register_skill_handler("vault", fn)）

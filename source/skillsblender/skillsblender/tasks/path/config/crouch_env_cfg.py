@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import isaaclab.terrains as terrain_gen
+import isaaclab.sim as sim_utils
+from isaaclab.assets import RigidObjectCfg
 from isaaclab.utils import configclass
 
 from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg, MySceneCfg
-from skillsblender.tasks.path.utils.crouch_terrain_spawner import spawn_crouch_obstacles
 import skillsblender.tasks.path.mdp as mdp
 
 
@@ -38,13 +39,44 @@ CROUCH_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
 class MyCrouchSceneCfg(MySceneCfg):
     """Crouch scene configuration with low obstacles."""
 
+    # Main low roof: long and wide, so the robot must crouch instead of bypassing it.
+    crouch_roof = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/CrouchRoof",
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(1.8, 0.0, 0.34),  # center height; bottom ~0.29 for 0.10 thickness
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        spawn=sim_utils.CuboidCfg(
+            size=(2.6, 1.6, 0.10),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+                disable_gravity=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+    )
+
+    # Tail roof extends low-clearance section so policy must hold crouch for longer.
+    crouch_roof_tail = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/CrouchRoofTail",
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(3.0, 0.0, 0.34),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        spawn=sim_utils.CuboidCfg(
+            size=(1.2, 1.4, 0.10),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True,
+                disable_gravity=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+    )
+
     def __post_init__(self):
         super().__post_init__()
         # Update terrain for crouch task
         self.terrain.terrain_generator = CROUCH_TERRAIN_CFG
-
-        # Note: Low obstacles for crouching will be spawned using
-        # spawn_crouch_obstacles() function in the environment
 
 
 # ==============================================================================
@@ -60,32 +92,49 @@ class CrouchPathEnvCfg(PathEnvCfg):
 
         # Use crouch scene
         self.scene: MyCrouchSceneCfg = MyCrouchSceneCfg(num_envs=4096, env_spacing=2.5)
-        self.commands.path_tracking.class_type = mdp.commands.PlannerPathCommand
-        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["crouch"]
+        self.commands.path_tracking.class_type = mdp.commands.CrouchPathCommand
 
         # Crouch-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
-        self.commands.path_tracking.crouch_params.crouch_len = 2.0
-        self.commands.path_tracking.crouch_params.base_height_ref = 0.24  # Lower height
+        self.commands.path_tracking.ranges.default_path_len = 4.2
+        self.commands.path_tracking.crouch_params.start_dist_range = (0.8, 1.1)
+        self.commands.path_tracking.crouch_params.crouch_len = 2.4
+        self.commands.path_tracking.crouch_params.base_height_ref = 0.24
+
+        # Keep starts aligned with the roof corridor so every episode practices crouching.
+        self.events.reset_base.params["pose_range"]["x"] = (-0.2, 0.2)
+        self.events.reset_base.params["pose_range"]["y"] = (-0.15, 0.15)
+        self.events.reset_base.params["pose_range"]["yaw"] = (-0.15, 0.15)
+        self.events.push_robot = None
 
         # Crouch-specific rewards
         self.rewards.track_xy.weight = 5.0
         self.rewards.track_yaw.weight = 2.0
-        self.rewards.track_velocity_along_path_exp.weight = 2.0  # Slower speed
+        self.rewards.track_velocity_along_path_exp.weight = 2.0
+        self.rewards.track_velocity_along_path_exp.params["desired_speed"] = 0.7  # Slower crawl speed
 
         # Low height reward (encourage crouching)
-        self.rewards.base_height_l2.weight = -2.0
+        self.rewards.base_height_l2.weight = -0.5
         self.rewards.base_height_l2.params["target_height"] = 0.24
+        self.rewards.crouch_base_height_phase.weight = -3.0
+        self.rewards.crouch_base_height_phase.params["target_height"] = 0.24
 
         # Stability in low stance
         self.rewards.flat_orientation.weight = -1.5
 
         # Avoid hitting obstacles with body
-        self.rewards.undesired_contacts.weight = -5.0
+        self.rewards.undesired_contacts.weight = -8.0
         self.rewards.undesired_contacts.params["sensor_cfg"].body_names = [
-            "base", ".*_hip", ".*_thigh"
+            "base", "Head_upper", "Head_lower", ".*_hip", ".*_thigh"
         ]
+        self.rewards.undesired_contacts_hip.weight = -3.0
+
+        # Any head/base collision with roof is a hard failure.
+        self.terminations.base_contact.params["sensor_cfg"].body_names = [
+            "base", "Head_upper", "Head_lower"
+        ]
+        self.terminations.base_contact.params["threshold"] = 0.6
 
         # Smooth motion
         self.rewards.action_rate_l2.weight = -0.01

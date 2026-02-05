@@ -3,18 +3,16 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
-from isaaclab.assets import Articulation, RigidObject
+from isaaclab.assets import Articulation
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.managers.manager_base import ManagerTermBase
-from isaaclab.managers.manager_term_cfg import RewardTermCfg
-from isaaclab.sensors import ContactSensor
-
-from isaaclab.utils.math import wrap_to_pi
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+# ==============================================================================
+# Jump Task-Specific Rewards
+# ==============================================================================
 
 def jump_height_tracking(
     env: ManagerBasedRLEnv,

@@ -15,13 +15,9 @@ from typing import Dict, List, Optional, Tuple
 
 from skillsblender.tasks.path.mdp.commands.path_command_cfg import PathGeneratorCfg
 from skillsblender.tasks.path.utils.skill_path_planners import (
+    DEFAULT_SKILL_PLANNER_REGISTRY,
     SkillPathPlanner,
-    WalkPathPlanner,
-    JumpPathPlanner,
-    StairsPathPlanner,
-    ClimbPathPlanner,
-    CrouchPathPlanner,
-    SegmentPlan,
+    SkillPlannerRegistration,
 )
 from skillsblender.tasks.path.utils.path_validator import PathValidator, PathResult
 
@@ -36,7 +32,15 @@ class TerrainAwarePathGenerator:
     4. 验证生成的路径
     """
 
-    def __init__(self, cfg: PathGeneratorCfg, device: torch.device):
+    def __init__(
+        self,
+        cfg: PathGeneratorCfg,
+        device: torch.device,
+        num_seg_params: int | None = None,
+        seg_param: dict[str, int] | None = None,
+        skill_id_map: dict[str, int] | None = None,
+        planner_registry: dict[str, SkillPlannerRegistration] | None = None,
+    ):
         """初始化路径生成器
 
         Args:
@@ -45,16 +49,31 @@ class TerrainAwarePathGenerator:
         """
         self.cfg = cfg
         self.device = device
+        self.num_seg_params = max(int(num_seg_params if num_seg_params is not None else getattr(cfg, "num_seg_params", 6)), 0)
+        self.seg_param = dict(seg_param or {})
+        self.skill_id_map = dict(skill_id_map or {})
 
-        # 注册技能路径规划器
-        self.skill_planners: Dict[str, SkillPathPlanner] = {
-            "walk": WalkPathPlanner(cfg.walk_params, device),
-            "jump": JumpPathPlanner(cfg.jump_params, device),
-            "stairs_up": StairsPathPlanner(cfg.stairs_params, device, direction="up"),
-            "stairs_down": StairsPathPlanner(cfg.stairs_params, device, direction="down"),
-            "climb": ClimbPathPlanner(cfg.climb_params, device),
-            "crouch": CrouchPathPlanner(cfg.crouch_params, device),
-        }
+        # 注册技能路径规划器（注册表驱动）
+        self.skill_planners: Dict[str, SkillPathPlanner] = {}
+        self._planner_skill_ids: dict[str, int] = {}
+        self._planner_registry = dict(planner_registry or DEFAULT_SKILL_PLANNER_REGISTRY)
+
+        for skill_name, registration in self._planner_registry.items():
+            params_cfg = getattr(cfg, registration.params_attr, None)
+            if params_cfg is None:
+                continue
+            planner = registration.planner_cls(
+                params_cfg,
+                device,
+                num_seg_params=self.num_seg_params,
+                seg_param=self.seg_param,
+                **dict(registration.planner_kwargs),
+            )
+            self.skill_planners[skill_name] = planner
+            if skill_name in self.skill_id_map:
+                self._planner_skill_ids[skill_name] = int(self.skill_id_map[skill_name])
+            else:
+                self._planner_skill_ids[skill_name] = len(self._planner_skill_ids)
 
         # 路径验证器
         self.validator = PathValidator(cfg.validation_params, device)
@@ -117,13 +136,14 @@ class TerrainAwarePathGenerator:
             segment_plan.headings,
             num_waypoints=self.num_waypoints,
         )
+        skill_id = int(self._planner_skill_ids[skill_name])
 
         # 5. 构建 PathResult
         path_result = PathResult(
             waypoints=waypoints,
             headings=headings,
             num_segments=torch.ones(N, dtype=torch.long, device=device),
-            segment_skills=torch.full((N, 1), segment_plan.skill_id, dtype=torch.long, device=device),
+            segment_skills=torch.full((N, 1), skill_id, dtype=torch.long, device=device),
             segment_s0=torch.zeros(N, 1, device=device),
             segment_s1=segment_plan.segment_length.unsqueeze(-1),
             segment_params=segment_plan.segment_params.unsqueeze(1),
@@ -195,7 +215,7 @@ class TerrainAwarePathGenerator:
 
             # 记录 segment 信息
             all_segments.append({
-                "skill_id": segment_plan.skill_id,
+                "skill_id": int(self._planner_skill_ids[skill_name]),
                 "s0": current_s.clone(),
                 "s1": current_s + segment_plan.segment_length,
                 "params": segment_plan.segment_params,

@@ -119,7 +119,7 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.ranges.waypoint_reach_threshold = 0.6
         self.commands.path_tracking.jump_params.scan_step = 0.05
         self.commands.path_tracking.jump_params.scan_width = 0.2
-        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["jump"]
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "jump", "walk"]
         
         # Configurable jump trajectory parameters
         self.commands.path_tracking.jump_params.endpoint_extension_min = 1.5

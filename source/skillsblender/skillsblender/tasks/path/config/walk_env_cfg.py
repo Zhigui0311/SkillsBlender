@@ -66,6 +66,14 @@ class WalkPathEnvCfg(PathEnvCfg):
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.ranges.default_path_len = 5.0
         self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk"]
+        self.commands.path_tracking.sampling.yaw_type = "decoupled"
+        self.commands.path_tracking.sampling.start_heading = (-3.1415926, 3.1415926)
+        self.commands.path_tracking.sampling.end_to_start_pos = (3.0, 6.0, 0.0)
+        self.commands.path_tracking.sampling.sample_goal_distance = True
+
+        # Randomized spawn position (local per-env) as randomized path starts
+        self.events.reset_base.params["pose_range"]["x"] = (-1.2, 1.2)
+        self.events.reset_base.params["pose_range"]["y"] = (-1.2, 1.2)
 
         # Walk-specific rewards
         self.rewards.track_xy.weight = 5.0
@@ -81,5 +89,9 @@ class WalkPathEnvCfg(PathEnvCfg):
         self.rewards.joint_acc_l2.weight = -2.5e-7
 
         # Gait rewards for trotting
-        self.rewards.feet_air_time.weight = 1.0
+        self.rewards.feet_air_time.weight = 0.8
         self.rewards.feet_air_time.params["threshold"] = 0.5
+        self.rewards.feet_gait.weight = 1.5
+        self.rewards.joint_mirror.weight = -0.4
+        self.rewards.air_time_variance.weight = -0.8
+        self.rewards.feet_contact_balance.weight = -1.0

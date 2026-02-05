@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -7,7 +8,7 @@ import torch
 from isaaclab.markers import VisualizationMarkers
 
 from .base_path_command import SegmentPathCommand
-from .path_command_cfg import PathCommandCfg
+from .path_command_cfg import PathCommandCfg, sync_skill_params_to_generator_cfg
 from skillsblender.tasks.path.utils.path_generator import TerrainAwarePathGenerator
 
 if TYPE_CHECKING:
@@ -19,7 +20,6 @@ class PlannerPathCommand(SegmentPathCommand):
 
     - Uses cfg.path_generator_cfg.skill_sequence to plan segments.
     - Falls back to a single "walk" segment if sequence is empty.
-    - Exposes is_in_jump_phase for jump-specific rewards.
     """
 
     cfg: PathCommandCfg
@@ -34,20 +34,16 @@ class PlannerPathCommand(SegmentPathCommand):
 
         gen_cfg = cfg.path_generator_cfg.copy()
         gen_cfg.num_waypoints = cfg.ranges.num_waypoints
-        gen_cfg.walk_params = cfg.walk_params
-        gen_cfg.jump_params = cfg.jump_params
-        gen_cfg.stairs_params = cfg.stairs_params
-        gen_cfg.climb_params = cfg.climb_params
-        gen_cfg.crouch_params = cfg.crouch_params
+        gen_cfg.num_seg_params = max(int(cfg.ranges.num_seg_params), 0)
+        sync_skill_params_to_generator_cfg(cfg, generator_cfg=gen_cfg, skill_names=list(self.SKILL_NAMES))
         self._generator_cfg = gen_cfg
-        self._path_generator = TerrainAwarePathGenerator(gen_cfg, self.device)
-
-    @property
-    def is_in_jump_phase(self) -> torch.Tensor:
-        self._select_current_segment()
-        env_ids = torch.arange(self.num_envs, device=self.device)
-        cur_skill = self._seg_skill[env_ids, self._cur_seg_idx]
-        return cur_skill == self.SKILL_JUMP
+        self._path_generator = TerrainAwarePathGenerator(
+            gen_cfg,
+            self.device,
+            num_seg_params=self.num_seg_params,
+            seg_param=self.SEG_PARAM,
+            skill_id_map=self.SKILL_ID,
+        )
 
     def _build_env_bounds(self, start_pos: torch.Tensor) -> torch.Tensor:
         bounds = self._generator_cfg.env_bounds
@@ -56,6 +52,46 @@ class PlannerPathCommand(SegmentPathCommand):
         y_min = start_pos[:, 1] + bounds.y_range[0]
         y_max = start_pos[:, 1] + bounds.y_range[1]
         return torch.stack([x_min, x_max, y_min, y_max], dim=-1)
+
+    def _sample_uniform_range(self, num_envs: int, low: float, high: float, fallback: float) -> torch.Tensor:
+        """Sample one scalar per env from [low, high], with robust fallbacks."""
+        lo = float(low)
+        hi = float(high)
+        if not math.isfinite(lo) or not math.isfinite(hi):
+            return torch.full((num_envs,), float(fallback), device=self.device)
+        if hi < lo:
+            lo, hi = hi, lo
+        if hi - lo < 1e-6:
+            return torch.full((num_envs,), lo, device=self.device)
+        return torch.empty((num_envs,), device=self.device).uniform_(lo, hi)
+
+    def _sample_path_length(
+        self,
+        env_ids: torch.Tensor,
+        start_pos: torch.Tensor,
+        start_yaw: torch.Tensor,
+        env_bounds: torch.Tensor,
+    ) -> torch.Tensor:
+        """Get per-env target path lengths and clamp to local env bounds."""
+        path_len = torch.full(
+            (len(env_ids),),
+            float(self.cfg.ranges.default_path_len),
+            device=self.device,
+        )
+
+        sampling = self.cfg.sampling
+        if getattr(sampling, "sample_goal_distance", False):
+            min_len, max_len, _ = sampling.end_to_start_pos
+            path_len = self._sample_uniform_range(
+                len(env_ids),
+                float(min_len),
+                float(max_len),
+                fallback=float(self.cfg.ranges.default_path_len),
+            )
+
+        max_path_len = self._path_generator.compute_max_path_length(start_pos, start_yaw, env_bounds)
+        path_len = torch.minimum(path_len, max_path_len)
+        return torch.clamp(path_len, min=1.0)
 
     def _gather_terrain_data(self, env_ids: torch.Tensor) -> dict[str, torch.Tensor]:
         terrain_data: dict[str, torch.Tensor] = {}
@@ -67,15 +103,22 @@ class PlannerPathCommand(SegmentPathCommand):
         self._set_planned_frame_from_robot(env_ids)
 
         start_pos = self._planned_start_pos[env_ids]
+        # Optionally override planned yaw to be independent of robot yaw
+        sampling = self.cfg.sampling
+        yaw_type = getattr(sampling, "yaw_type", "along_path")
+        if yaw_type in ("fixed", "world", "decoupled", "random"):
+            lo, hi = sampling.start_heading
+            planned_yaw = self._sample_uniform_range(len(env_ids), float(lo), float(hi), fallback=0.0)
+            self._planned_yaw[env_ids] = planned_yaw
+            fwd = torch.stack([torch.cos(planned_yaw), torch.sin(planned_yaw)], dim=-1)
+            left = torch.stack([-torch.sin(planned_yaw), torch.cos(planned_yaw)], dim=-1)
+            self._planned_forward_dir[env_ids] = fwd
+            self._planned_left_dir[env_ids] = left
+
         start_yaw = self._planned_yaw[env_ids]
         env_bounds = self._build_env_bounds(start_pos)
         terrain_data = self._gather_terrain_data(env_ids)
-
-        path_len = torch.full(
-            (len(env_ids),),
-            float(self.cfg.ranges.default_path_len),
-            device=self.device,
-        )
+        path_len = self._sample_path_length(env_ids, start_pos, start_yaw, env_bounds)
 
         skill_sequence = list(getattr(self._generator_cfg, "skill_sequence", []) or [])
         if not skill_sequence:

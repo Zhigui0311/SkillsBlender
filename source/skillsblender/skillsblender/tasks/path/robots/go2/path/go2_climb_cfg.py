@@ -2,8 +2,38 @@
 
 from skillsblender.tasks.path.config.climb_env_cfg import ClimbPathEnvCfg
 from skillsblender.assets.robots.unitree import UNITREE_GO2_CFG
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.utils import configclass
 import skillsblender.tasks.path.mdp as mdp
+
+
+_CLIMB_INIT_H = 0.56
+_CLIMB_FINAL_H = 0.78
+_CLIMB_INIT_LEN = 1.30
+_CLIMB_FINAL_LEN = 0.90
+
+
+@configclass
+class ClimbCurriculumCfg:
+    """Climb-specific curriculum learning configuration."""
+
+    climb_difficulty = CurrTerm(
+        func=mdp.curriculum_climb_difficulty,
+        params={
+            "command_name": "path_tracking",
+            "reward_threshold": 60.0,
+            "initial_climb_height": _CLIMB_INIT_H,
+            "final_climb_height": _CLIMB_FINAL_H,
+            "climb_height_step": 0.02,
+            "initial_climb_len": _CLIMB_INIT_LEN,
+            "final_climb_len": _CLIMB_FINAL_LEN,
+            "climb_len_step": 0.03,
+            "step_asset_name": "climb_step",
+            "top_asset_name": "climb_top",
+            "step_half_height": 0.28,
+            "top_half_thickness": 0.05,
+        },
+    )
 
 
 @configclass
@@ -28,11 +58,14 @@ class Go2ClimbEnvCfg(ClimbPathEnvCfg):
         # Task rewards
         self.rewards.track_xy.weight = 6.0
         self.rewards.track_yaw.weight = 2.5
-        self.rewards.track_velocity_along_path_exp.weight = 5.0  # Emphasize forward progress
+        self.rewards.track_velocity_along_path_exp.weight = 1.0
+        self.rewards.track_velocity_along_path_exp.params["desired_speed"] = 0.65
+        self.rewards.climb_track_velocity_phase.weight = 5.0
+        self.rewards.climb_track_velocity_phase.params["desired_speed"] = 0.65
 
         # Base stability on slopes
         self.rewards.flat_orientation.weight = -1.5
-        self.rewards.base_height_l2.weight = -1.0
+        self.rewards.base_height_l2.weight = 0.0
         self.rewards.base_lin_vel_z.weight = -0.5
         self.rewards.base_ang_vel_xy.weight = -0.05
         self.rewards.base_acc.weight = -2.5e-4
@@ -57,9 +90,29 @@ class Go2ClimbEnvCfg(ClimbPathEnvCfg):
         # Command parameters
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
-        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["climb"]
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "climb", "walk"]
 
         if self.__class__.__name__ == "Go2ClimbEnvCfg":
+            self.disable_zero_weight_rewards()
+
+
+@configclass
+class Go2ClimbCurEnvCfg(Go2ClimbEnvCfg):
+    """Unitree Go2 climb training configuration with curriculum."""
+
+    curriculum: ClimbCurriculumCfg = ClimbCurriculumCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.path_tracking.climb_params.climb_height = _CLIMB_INIT_H
+        self.commands.path_tracking.climb_params.climb_len = _CLIMB_INIT_LEN
+
+        if hasattr(self.scene, "climb_step"):
+            self.scene.climb_step.init_state.pos = (1.8, 0.0, _CLIMB_INIT_H - 0.28)
+        if hasattr(self.scene, "climb_top"):
+            self.scene.climb_top.init_state.pos = (2.9, 0.0, _CLIMB_INIT_H + 0.05)
+
+        if self.__class__.__name__ == "Go2ClimbCurEnvCfg":
             self.disable_zero_weight_rewards()
 
 
@@ -83,3 +136,12 @@ class Go2ClimbEnvCfg_PLAY(Go2ClimbEnvCfg):
         self.viewer.origin_type = "env"
         self.commands.path_tracking.debug_vis = True
         self.observations.policy.enable_corruption = False
+
+
+@configclass
+class Go2ClimbCurEnvCfg_PLAY(Go2ClimbCurEnvCfg):
+    """Unitree Go2 climb curriculum PLAY configuration."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.curriculum = None

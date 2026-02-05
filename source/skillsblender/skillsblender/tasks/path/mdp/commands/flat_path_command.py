@@ -40,8 +40,8 @@ class FlatPathCommand(SegmentPathCommand):
         self._clear_segments(env_ids)
         s0 = torch.zeros(len(env_ids), device=self.device)
         s1 = total_len
-        params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        params[:, self.SEG_PARAM["v_ref"]] = 1.0
+        params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(params, "v_ref", 1.0)
         self._append_segment(env_ids, self.SKILL_ID["walk"], s0, s1, params=params)
         self._num_segs[env_ids] = torch.clamp(self._num_segs[env_ids], min=1)
 

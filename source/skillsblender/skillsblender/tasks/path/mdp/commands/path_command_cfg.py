@@ -8,6 +8,64 @@ from isaaclab.markers import VisualizationMarkersCfg
 from skillsblender.tasks.path.config import WAYPOINTS_MARKER_CFG, START_SPHERE_MARKER_CFG, GOAL_SPHERE_MARKER_CFG
 
 
+_DEFAULT_SKILL_PARAM_ALIASES: dict[str, str] = {
+    "stairs_up": "stairs_params",
+    "stairs_down": "stairs_params",
+}
+
+
+def resolve_skill_params_attr(cfg_obj, skill_name: str, aliases: dict[str, str] | None = None) -> str | None:
+    """Resolve a skill name to a `*_params` attribute on `cfg_obj`."""
+    candidate_attrs: list[str] = []
+    alias_map = dict(_DEFAULT_SKILL_PARAM_ALIASES)
+    if aliases:
+        alias_map.update(aliases)
+    if skill_name in alias_map:
+        candidate_attrs.append(alias_map[skill_name])
+    candidate_attrs.append(f"{skill_name}_params")
+    if "_" in skill_name:
+        candidate_attrs.append(f"{skill_name.rsplit('_', 1)[0]}_params")
+
+    for attr_name in candidate_attrs:
+        if hasattr(cfg_obj, attr_name):
+            return attr_name
+    return None
+
+
+def get_registered_skill_names() -> list[str]:
+    """Read skill names from SegmentPathCommand registry if available."""
+    try:
+        from .base_path_command import SegmentPathCommand
+
+        return list(SegmentPathCommand.SKILL_NAMES)
+    except Exception:
+        return []
+
+
+def sync_skill_params_to_generator_cfg(
+    command_cfg,
+    generator_cfg=None,
+    skill_names: list[str] | None = None,
+):
+    """Sync all recognized `*_params` from command cfg to generator cfg."""
+    gen_cfg = command_cfg.path_generator_cfg if generator_cfg is None else generator_cfg
+    aliases = getattr(gen_cfg, "skill_param_aliases", None)
+    if aliases is None:
+        aliases = {}
+
+    names = list(skill_names or get_registered_skill_names())
+    if not names:
+        names = list(getattr(gen_cfg, "skill_sequence", []) or [])
+
+    for skill_name in names:
+        attr_name = resolve_skill_params_attr(command_cfg, skill_name, aliases=aliases)
+        if attr_name is None:
+            continue
+        setattr(gen_cfg, attr_name, getattr(command_cfg, attr_name))
+
+    return gen_cfg
+
+
 @configclass
 class JumpParams:
     scan_dist: float = 6.0
@@ -85,8 +143,8 @@ class ValidationParams:
 
 
 @configclass
-class InterpolationPoints:
-    """Legacy path interpolation inputs (kept for backward compatibility)."""
+class PathSamplingCfg:
+    """Path sampling and heading strategy configuration."""
     path_type: str = "linear"
     height_change: bool = False
     # interpreted as (min_len, max_len, z_offset); only len range used in current commands
@@ -94,6 +152,7 @@ class InterpolationPoints:
     yaw_type: str = "along_path"
     start_heading: Tuple[float, float] = (0.0, 0.0)
     end_heading: Tuple[float, float] = (0.0, 0.0)
+    sample_goal_distance: bool = False
 
 @configclass
 class PathGeneratorCfg:
@@ -104,6 +163,7 @@ class PathGeneratorCfg:
     # 路径采样参数
     num_waypoints: int = 80  # 路径航点数量
     waypoint_spacing: float = 0.1  # 航点间距 (m)
+    num_seg_params: int = 6
 
     # 技能参数
     walk_params: WalkParams = field(default_factory=WalkParams)
@@ -118,6 +178,8 @@ class PathGeneratorCfg:
     # 多技能路径规划
     enable_multi_skill: bool = False  # 是否启用多技能路径规划
     skill_sequence: List[str] = field(default_factory=lambda: ["walk"])  # 技能序列
+    # optional aliases when a skill name maps to shared params (e.g. stairs_up/down -> stairs_params)
+    skill_param_aliases: dict[str, str] = field(default_factory=lambda: dict(_DEFAULT_SKILL_PARAM_ALIASES))
 
 @configclass
 class PathRanges:
@@ -138,6 +200,7 @@ class PathRanges:
     num_skills: int = 7  # keep in sync with PathCommand skill ids
 
     # segment param vector (shared across skills)
+    # Set to 0 to disable per-segment param table (smaller command/meta and slightly faster updates).
     num_seg_params: int = 6
 
     # normalization / clipping for meta distances
@@ -151,8 +214,7 @@ class PathCommandCfg(CommandTermCfg):
     ranges: PathRanges = PathRanges()
     path_generator_cfg: PathGeneratorCfg = PathGeneratorCfg()
 
-    # legacy compatibility for older configs
-    inpoints: InterpolationPoints = InterpolationPoints()
+    sampling: PathSamplingCfg = PathSamplingCfg()
 
     # per-skill config
     walk_params: WalkParams = WalkParams()
@@ -187,11 +249,8 @@ class PathCommandCfg(CommandTermCfg):
             self.class_type = PlannerPathCommand
         # sync generator cfg with command cfg
         self.path_generator_cfg.num_waypoints = self.ranges.num_waypoints
-        self.path_generator_cfg.walk_params = self.walk_params
-        self.path_generator_cfg.jump_params = self.jump_params
-        self.path_generator_cfg.stairs_params = self.stairs_params
-        self.path_generator_cfg.climb_params = self.climb_params
-        self.path_generator_cfg.crouch_params = self.crouch_params
+        self.path_generator_cfg.num_seg_params = max(int(self.ranges.num_seg_params), 0)
+        sync_skill_params_to_generator_cfg(self)
         parent_post_init = getattr(super(), "__post_init__", None)
         if callable(parent_post_init):
             parent_post_init()
@@ -233,8 +292,8 @@ class CrouchPathCommandCfg(PathCommandCfg):
         self.class_type = CrouchPathCommand
 
 
-# Backward-compatible nested names used in older configs
-PathCommandCfg.InterpolationPoints = InterpolationPoints
+# Nested helper names used in configs
+PathCommandCfg.Sampling = PathSamplingCfg
 PathCommandCfg.Ranges = PathRanges
 PathCommandCfg.PathGeneratorCfg = PathGeneratorCfg
 PathCommandCfg.WalkParams = WalkParams
@@ -243,6 +302,6 @@ PathCommandCfg.StairsParams = StairsParams
 PathCommandCfg.ClimbParams = ClimbParams
 PathCommandCfg.CrouchParams = CrouchParams
 
-JumpPathCommandCfg.InterpolationPoints = InterpolationPoints
+JumpPathCommandCfg.Sampling = PathSamplingCfg
 JumpPathCommandCfg.Ranges = PathRanges
 JumpPathCommandCfg.JumpParams = JumpParams

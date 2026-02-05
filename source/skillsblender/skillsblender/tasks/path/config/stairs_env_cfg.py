@@ -71,28 +71,42 @@ class StairsPathEnvCfg(PathEnvCfg):
 
         # Use stairs scene
         self.scene: MyStairsSceneCfg = MyStairsSceneCfg(num_envs=4096, env_spacing=2.5)
-        self.commands.path_tracking.class_type = mdp.commands.PlannerPathCommand
-        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["stairs_up"]
+        self.commands.path_tracking.class_type = mdp.commands.StairsPathCommand
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "stairs_up", "stairs_down", "walk"]
+        self.commands.path_tracking.sampling.yaw_type = "fixed"
+        self.commands.path_tracking.sampling.start_heading = (0.0, 0.0)
 
         # Stairs-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
-        self.commands.path_tracking.stairs_params.stairs_len = 2.5
+        self.commands.path_tracking.ranges.default_path_len = 5.5
+        self.commands.path_tracking.stairs_params.start_dist_range = (0.8, 1.2)
+        self.commands.path_tracking.stairs_params.stairs_len = 1.8
         self.commands.path_tracking.stairs_params.step_length = 0.25
-        self.commands.path_tracking.stairs_params.step_height = 0.07
+        self.commands.path_tracking.stairs_params.step_height = 0.10
+
+        # Keep starts aligned with the stair axis for stable up/down training.
+        self.events.reset_base.params["pose_range"]["x"] = (-0.25, 0.25)
+        self.events.reset_base.params["pose_range"]["y"] = (-0.2, 0.2)
+        self.events.reset_base.params["pose_range"]["yaw"] = (-0.2, 0.2)
 
         # Stairs-specific rewards
         self.rewards.track_xy.weight = 6.0
         self.rewards.track_yaw.weight = 3.0
         self.rewards.track_velocity_along_path_exp.weight = 2.0
+        self.rewards.track_velocity_along_path_exp.params["desired_speed"] = 0.7
 
         # Clearance reward for lifting feet
-        self.rewards.feet_air_time.weight = 2.0
+        self.rewards.feet_air_time.weight = 0.0
         self.rewards.feet_air_time.params["threshold"] = 0.3
+        self.rewards.stairs_feet_air_time_phase.weight = 2.5
+        self.rewards.stairs_feet_air_time_phase.params["threshold"] = 0.3
 
         # Stability rewards
         self.rewards.flat_orientation.weight = -2.0
-        self.rewards.base_height_l2.weight = -1.5
+        # Disable constant-height penalty: climbing stairs needs changing base height.
+        self.rewards.base_height_l2.weight = 0.0
+        self.rewards.feet_slide.weight = -2.0
 
         # Smooth motion
         self.rewards.action_rate_l2.weight = -0.01

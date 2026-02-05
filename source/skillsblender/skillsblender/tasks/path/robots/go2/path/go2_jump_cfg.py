@@ -71,7 +71,7 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.jump_params.jump_height = 0.45
-        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["jump"]
+        self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "jump", "walk"]
         # Others
         # self.rewards.air_time_variance.weight = -4.0
         # self.rewards.feet_acc.weight = -2e-6

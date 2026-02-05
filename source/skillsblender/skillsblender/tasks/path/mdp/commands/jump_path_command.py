@@ -108,6 +108,22 @@ class JumpPathCommand(SegmentPathCommand):
                 gap_s1[bi] = xv[last]
                 has_gap[bi] = True
 
+        # Fallback: when scanner doesn't find a gap, synthesize one in the middle.
+        # This keeps jump-skill training from degenerating into pure straight walking.
+        missing = ~has_gap
+        if torch.any(missing):
+            default_len = torch.full((len(env_ids),), float(self.cfg.ranges.default_path_len), device=self.device)
+            mid = 0.55 * default_len[missing]
+            gap_w = torch.clamp(0.18 * default_len[missing], min=0.45, max=0.8)
+            s0 = torch.clamp(mid - 0.5 * gap_w, min=0.6)
+            s1 = torch.clamp(s0 + gap_w, max=default_len[missing] - 0.6)
+            too_short = (s1 - s0) < 0.2
+            if torch.any(too_short):
+                s1 = torch.where(too_short, s0 + 0.2, s1)
+            gap_s0[missing] = s0
+            gap_s1[missing] = s1
+            has_gap[missing] = True
+
         # margins & arc parameters
         gap_w = (gap_s1 - gap_s0).clamp(min=0.0)
         jp = self.cfg.jump_params
@@ -170,21 +186,21 @@ class JumpPathCommand(SegmentPathCommand):
         # leading walk
         lead_s0 = s_zero
         lead_s1 = torch.where(has_gap, jump_s0, total_len)
-        lead_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        lead_params[:, 0] = 1.0  # v_ref
+        lead_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(lead_params, "v_ref", 1.0)
         self._append_segment(env_ids, self.SKILL_WALK, lead_s0, lead_s1, params=lead_params)
 
         # jump segment
-        j_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        j_params[:, 0] = 1.0
-        j_params[:, 4] = jump_h  # jump_height_ref slot
+        j_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(j_params, "v_ref", 1.0)
+        self._set_seg_param(j_params, "jump_height_ref", jump_h)
         self._append_segment(env_ids, self.SKILL_JUMP, jump_s0, jump_s1, params=j_params)
 
         # trailing walk
         trail_s0 = torch.where(has_gap, jump_s1, total_len)
         trail_s1 = total_len
-        trail_params = torch.zeros(len(env_ids), self.num_seg_params, device=self.device)
-        trail_params[:, 0] = 1.0
+        trail_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(trail_params, "v_ref", 1.0)
         self._append_segment(env_ids, self.SKILL_WALK, trail_s0, trail_s1, params=trail_params)
 
         # ensure at least one segment (no-gap case -> lead walk kept)
