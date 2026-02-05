@@ -75,3 +75,10 @@ tests/
 
 # AI Files
 **/openspec/*
+
+*_REPORT.md
+*_SUMMARY.md
+*_GUIDE.md
+*_COMPLETE.md
+test_*.py
+run_*.sh
