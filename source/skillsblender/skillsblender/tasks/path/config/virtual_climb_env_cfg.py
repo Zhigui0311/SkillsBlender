@@ -7,12 +7,13 @@ import torch
 import isaaclab.terrains as terrain_gen
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
 
 import skillsblender.tasks.path.mdp as mdp
 from skillsblender.assets.robots.unitree import UNITREE_GO2_CFG
-from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg
+from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg, RewardsCfg, GO2_JOINT_NAMES
 from skillsblender.tasks.path.mdp.commands.virtual_climb_path_command import (
     VirtualClimbPathCommand,
     VirtualClimbPathCommandCfg,
@@ -53,6 +54,88 @@ def track_base_pitch(
 
 
 @configclass
+class VirtualRewards(RewardsCfg):
+    """Reward shaping for virtual climb: strong tracking, minimal penalties."""
+
+    is_terminated = RewTerm(func=mdp.is_terminated, weight=-200.0)
+
+    track_xy = RewTerm(
+        func=mdp.track_path_pos_xy_exp,
+        weight=8.0,
+        params={"std": 0.5, "command_name": "path_tracking"},
+    )
+    track_yaw = RewTerm(
+        func=mdp.track_path_heading_exp,
+        weight=4.0,
+        params={"std": 0.5, "command_name": "path_tracking"},
+    )
+    track_velocity_along_path_exp = RewTerm(
+        func=mdp.track_velocity_along_path_exp,
+        weight=4.0,
+        params={"std": 0.6, "command_name": "path_tracking", "desired_speed": 0.9},
+    )
+    track_z = RewTerm(
+        func=track_path_pos_z_exp,
+        weight=8.0,
+        params={"std": 0.10, "command_name": "path_tracking"},
+    )
+
+    base_height_l2 = RewTerm(
+        func=mdp.base_height_l2,
+        weight=0.0,
+        params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")},
+    )
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={})
+    undesired_contacts_hip = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=0.0,
+        params={
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=["Head_upper", "Head_lower", "RL_hip", "RR_hip"],
+            ),
+            "threshold": 1.0,
+        },
+    )
+    joint_torques_l2 = RewTerm(
+        func=mdp.joint_torques_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_vel_l2 = RewTerm(
+        func=mdp.joint_vel_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_acc_l2 = RewTerm(
+        func=mdp.joint_acc_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_vel_limits = RewTerm(
+        func=mdp.joint_vel_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES), "soft_ratio": 1.0},
+    )
+    joint_mirror = RewTerm(
+        func=mdp.joint_mirror,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot"), "mirror_joints": [["FR.*", "RL.*"], ["FL.*", "RR.*"]]},
+    )
+    applied_torque_limits = RewTerm(
+        func=mdp.applied_torque_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=0.0)
+
+
+@configclass
 class VirtualClimbCurriculumCfg:
     virtual_difficulty = CurrTerm(
         func=mdp.curriculum_virtual_skill_difficulty,
@@ -73,6 +156,7 @@ class VirtualClimbCurriculumCfg:
 class Go2VirtualClimbEnvCfg(PathEnvCfg):
     """Virtual climb training on flat terrain only."""
     curriculum: VirtualClimbCurriculumCfg = VirtualClimbCurriculumCfg()
+    rewards: VirtualRewards = VirtualRewards()
 
     def __post_init__(self):
         super().__post_init__()
@@ -81,11 +165,11 @@ class Go2VirtualClimbEnvCfg(PathEnvCfg):
         self.commands.path_tracking = VirtualClimbPathCommandCfg(
             class_type=VirtualClimbPathCommand,
             asset_name="robot",
-            resampling_time_range=(3.0, 12.0),
-            climb_prob=0.25,
+            resampling_time_range=(1.0, 3.0),
+            virtual_prob=0.50,
             climb_length_range=(1.0, 1.8),
             pitch_deg_range=(15.0, 15.0),
-            cool_down=0.8,
+            cool_down=0.3,
             debug_vis=True,
         )
 
@@ -95,23 +179,11 @@ class Go2VirtualClimbEnvCfg(PathEnvCfg):
             }
             self.scene.terrain.terrain_generator.difficulty_range = (0.0, 0.0)
 
-        self.rewards.track_z = RewTerm(
-            func=track_path_pos_z_exp,
-            weight=10.0,
-            params={"std": 0.10, "command_name": "path_tracking"},
-        )
         self.rewards.track_base_pitch = RewTerm(
             func=track_base_pitch,
-            weight=5.0,
+            weight=6.0,
             params={"std": 0.25, "command_name": "path_tracking"},
         )
-        self.rewards.base_lin_vel_z.weight = 0.0
-        self.rewards.joint_torques_l2.weight = -2.0e-5
-
-        self.rewards.track_xy.weight = 5.0
-        self.rewards.track_yaw.weight = 2.0
-        self.rewards.track_velocity_along_path_exp.weight = 2.8
-        self.rewards.stalling_penalty.weight = -1.0
 
         self.terminations.path_deviation.params["min_threshold"] = 0.8
         self.terminations.path_deviation.params["max_threshold"] = 6.0

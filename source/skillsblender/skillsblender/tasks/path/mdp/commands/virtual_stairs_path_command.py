@@ -28,7 +28,9 @@ class VirtualStairsPathCommandCfg(VirtualJumpPathCommandCfg):
     down_pitch_deg: float = -10.0
 
     def __post_init__(self):
-        self.jump_prob = self.run_prob
+        if getattr(self, "run_prob", 0.0):
+            self.virtual_prob = float(self.run_prob)
+        self.gap_width_range = self.stairs_length_range
         self.jump_length_range = self.stairs_length_range
         # Height handled per-trigger; keep range non-zero for base sampling.
         self.jump_height_range = (self.step_height, self.step_height)
@@ -111,11 +113,53 @@ class VirtualStairsPathCommand(VirtualJumpPathCommand):
         remaining_s1 = self._jump_end_dist[env_ids] - prev_s
 
         self._set_planned_frame_from_robot(env_ids)
-        pos_traj, yaw_traj, total_len = self._generate_trajectory(
-            env_ids,
-            remaining_s0=remaining_s0,
-            remaining_s1=remaining_s1,
-        )
+        total_len = self._sample_path_length(len(env_ids))
+
+        active_prev = self._state[env_ids] == self.STATE_JUMPING
+        prob = float(getattr(self.cfg, "virtual_prob", 0.0))
+        do_trigger = active_prev | (torch.rand(len(env_ids), device=self.device) < prob)
+
+        if torch.any(active_prev):
+            self._jump_start_dist[env_ids] = torch.where(
+                active_prev,
+                torch.clamp(remaining_s0, min=0.0),
+                self._jump_start_dist[env_ids],
+            )
+            self._jump_end_dist[env_ids] = torch.where(
+                active_prev,
+                torch.clamp(remaining_s1, min=0.08),
+                self._jump_end_dist[env_ids],
+            )
+
+        if torch.any(~do_trigger):
+            env_nt = env_ids[~do_trigger]
+            self._state[env_nt] = self.STATE_IDLE
+            self._jump_start_dist[env_nt] = 0.0
+            self._jump_end_dist[env_nt] = 0.0
+            self._jump_height[env_nt] = 0.0
+            self._stairs_steps[env_nt] = 0
+            self._stairs_dir[env_nt] = 1.0
+            self.pitch_target[env_nt] = 0.0
+
+        new_trigger = do_trigger & (~active_prev)
+        if torch.any(new_trigger):
+            env_t = env_ids[new_trigger]
+            n = len(env_t)
+            seg_len = self._sample_uniform(n, *self.cfg.gap_width_range)
+            seg_len = torch.minimum(seg_len, total_len[new_trigger] * 0.6)
+            seg_len = torch.clamp(seg_len, min=0.2)
+            h = self._sample_uniform(n, *self.cfg.jump_height_range)
+            steps = self._sample_steps(n, *self.cfg.stairs_steps_range)
+            s0, s1 = self._sample_segment_bounds(total_len[new_trigger], seg_len)
+            self._state[env_t] = self.STATE_JUMPING
+            self._jump_start_dist[env_t] = s0
+            self._jump_end_dist[env_t] = torch.maximum(s1, s0 + 0.1)
+            self._jump_height[env_t] = h
+            self._stairs_steps[env_t] = steps
+            self._on_trigger(env_t, s0, s1, h, steps)
+
+        pos_traj, yaw_traj, _ = self._generate_base_trajectory(env_ids, total_len=total_len)
+        pos_traj = self._apply_profile(env_ids, pos_traj, total_len)
 
         self._path_len[env_ids] = total_len
         self.pos_path_w[env_ids] = pos_traj
@@ -128,53 +172,63 @@ class VirtualStairsPathCommand(VirtualJumpPathCommand):
         stairs_s0 = self._jump_start_dist[env_ids]
         stairs_s1 = self._jump_end_dist[env_ids]
 
-        lead_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(lead_params, "v_ref", 1.0)
-        self._append_segment(
-            env_ids,
-            self.SKILL_ID.get("walk", 0),
-            zero,
-            torch.where(stairs_active, stairs_s0, total_len),
-            params=lead_params,
-        )
+        # Non-trigger: pure walk.
+        if torch.any(~stairs_active):
+            env_nt = env_ids[~stairs_active]
+            params = self._new_seg_params(len(env_nt))
+            self._set_seg_param(params, "v_ref", 1.0)
+            self._append_segment(env_nt, self.SKILL_WALK, zero[~stairs_active], total_len[~stairs_active], params=params)
 
-        stairs_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(stairs_params, "v_ref", 1.2)
-        self._set_seg_param(stairs_params, "clearance_ref", 0.16)
-        # Force high step-height reference regardless of direction.
-        self._set_seg_param(stairs_params, "step_height_ref", float(self.cfg.step_height))
-        self._set_seg_param(stairs_params, "misc", self._stairs_steps[env_ids].to(torch.float32))
-
-        up_mask = stairs_active & (self._stairs_dir[env_ids] >= 0.0)
-        down_mask = stairs_active & (self._stairs_dir[env_ids] < 0.0)
-        if torch.any(up_mask):
-            env_up = env_ids[up_mask]
+        # Triggered: walk -> stairs -> walk.
+        if torch.any(stairs_active):
+            env_t = env_ids[stairs_active]
+            lead_params = self._new_seg_params(len(env_t))
+            self._set_seg_param(lead_params, "v_ref", 1.0)
             self._append_segment(
-                env_up,
-                self.SKILL_STAIRS_UP,
-                stairs_s0[up_mask],
-                stairs_s1[up_mask],
-                params=stairs_params[up_mask],
-            )
-        if torch.any(down_mask):
-            env_down = env_ids[down_mask]
-            self._append_segment(
-                env_down,
-                self.SKILL_STAIRS_DOWN,
-                stairs_s0[down_mask],
-                stairs_s1[down_mask],
-                params=stairs_params[down_mask],
+                env_t,
+                self.SKILL_WALK,
+                zero[stairs_active],
+                stairs_s0[stairs_active],
+                params=lead_params,
             )
 
-        trail_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(trail_params, "v_ref", 1.0)
-        self._append_segment(
-            env_ids,
-            self.SKILL_ID.get("walk", 0),
-            torch.where(stairs_active, stairs_s1, total_len),
-            total_len,
-            params=trail_params,
-        )
+            stairs_params = self._new_seg_params(len(env_t))
+            self._set_seg_param(stairs_params, "v_ref", 1.2)
+            self._set_seg_param(stairs_params, "clearance_ref", 0.16)
+            # Force high step-height reference regardless of direction.
+            self._set_seg_param(stairs_params, "step_height_ref", float(self.cfg.step_height))
+            self._set_seg_param(stairs_params, "misc", self._stairs_steps[env_t].to(torch.float32))
+
+            up_mask = self._stairs_dir[env_t] >= 0.0
+            down_mask = ~up_mask
+            if torch.any(up_mask):
+                env_up = env_t[up_mask]
+                self._append_segment(
+                    env_up,
+                    self.SKILL_STAIRS_UP,
+                    stairs_s0[stairs_active][up_mask],
+                    stairs_s1[stairs_active][up_mask],
+                    params=stairs_params[up_mask],
+                )
+            if torch.any(down_mask):
+                env_down = env_t[down_mask]
+                self._append_segment(
+                    env_down,
+                    self.SKILL_STAIRS_DOWN,
+                    stairs_s0[stairs_active][down_mask],
+                    stairs_s1[stairs_active][down_mask],
+                    params=stairs_params[down_mask],
+                )
+
+            trail_params = self._new_seg_params(len(env_t))
+            self._set_seg_param(trail_params, "v_ref", 1.0)
+            self._append_segment(
+                env_t,
+                self.SKILL_WALK,
+                stairs_s1[stairs_active],
+                total_len[stairs_active],
+                params=trail_params,
+            )
 
         self._num_segs[env_ids] = torch.clamp(self._num_segs[env_ids], min=1)
         self.current_waypoints_index[env_ids] = 0

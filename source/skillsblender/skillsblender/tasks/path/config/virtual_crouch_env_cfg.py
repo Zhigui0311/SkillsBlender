@@ -7,11 +7,12 @@ import torch
 import isaaclab.terrains as terrain_gen
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
 import skillsblender.tasks.path.mdp as mdp
 from skillsblender.assets.robots.unitree import UNITREE_GO2_CFG
-from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg
+from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg, RewardsCfg, GO2_JOINT_NAMES
 from skillsblender.tasks.path.mdp.commands.virtual_crouch_path_command import (
     VirtualCrouchPathCommand,
     VirtualCrouchPathCommandCfg,
@@ -29,6 +30,88 @@ def track_path_pos_z_exp(
     command = env.command_manager.get_term(command_name)
     err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
     return torch.exp(-torch.square(err) / (std**2))
+
+
+@configclass
+class VirtualRewards(RewardsCfg):
+    """Reward shaping for virtual crouch: strong tracking, minimal penalties."""
+
+    is_terminated = RewTerm(func=mdp.is_terminated, weight=-200.0)
+
+    track_xy = RewTerm(
+        func=mdp.track_path_pos_xy_exp,
+        weight=8.0,
+        params={"std": 0.5, "command_name": "path_tracking"},
+    )
+    track_yaw = RewTerm(
+        func=mdp.track_path_heading_exp,
+        weight=4.0,
+        params={"std": 0.5, "command_name": "path_tracking"},
+    )
+    track_velocity_along_path_exp = RewTerm(
+        func=mdp.track_velocity_along_path_exp,
+        weight=4.0,
+        params={"std": 0.6, "command_name": "path_tracking", "desired_speed": 0.8},
+    )
+    track_z = RewTerm(
+        func=track_path_pos_z_exp,
+        weight=12.0,
+        params={"std": 0.10, "command_name": "path_tracking"},
+    )
+
+    base_height_l2 = RewTerm(
+        func=mdp.base_height_l2,
+        weight=0.0,
+        params={"target_height": 0.24, "asset_cfg": SceneEntityCfg("robot")},
+    )
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={})
+    undesired_contacts_hip = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=0.0,
+        params={
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=["Head_upper", "Head_lower", "RL_hip", "RR_hip"],
+            ),
+            "threshold": 1.0,
+        },
+    )
+    joint_torques_l2 = RewTerm(
+        func=mdp.joint_torques_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_vel_l2 = RewTerm(
+        func=mdp.joint_vel_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_acc_l2 = RewTerm(
+        func=mdp.joint_acc_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_vel_limits = RewTerm(
+        func=mdp.joint_vel_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES), "soft_ratio": 1.0},
+    )
+    joint_mirror = RewTerm(
+        func=mdp.joint_mirror,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot"), "mirror_joints": [["FR.*", "RL.*"], ["FL.*", "RR.*"]]},
+    )
+    applied_torque_limits = RewTerm(
+        func=mdp.applied_torque_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=0.0)
 
 
 @configclass
@@ -52,6 +135,7 @@ class VirtualCrouchCurriculumCfg:
 class Go2VirtualCrouchEnvCfg(PathEnvCfg):
     """Virtual crouch training on flat terrain only."""
     curriculum: VirtualCrouchCurriculumCfg = VirtualCrouchCurriculumCfg()
+    rewards: VirtualRewards = VirtualRewards()
 
     def __post_init__(self):
         super().__post_init__()
@@ -60,11 +144,11 @@ class Go2VirtualCrouchEnvCfg(PathEnvCfg):
         self.commands.path_tracking = VirtualCrouchPathCommandCfg(
             class_type=VirtualCrouchPathCommand,
             asset_name="robot",
-            resampling_time_range=(3.0, 12.0),
-            crouch_prob=0.25,
+            resampling_time_range=(1.0, 3.0),
+            virtual_prob=0.50,
             crouch_depth_range=(0.22, 0.34),
             crouch_length_range=(1.2, 2.0),
-            cool_down=0.8,
+            cool_down=0.3,
             debug_vis=True,
         )
 
@@ -74,24 +158,11 @@ class Go2VirtualCrouchEnvCfg(PathEnvCfg):
             }
             self.scene.terrain.terrain_generator.difficulty_range = (0.0, 0.0)
 
-        self.rewards.track_z = RewTerm(
-            func=track_path_pos_z_exp,
-            weight=10.0,
-            params={"std": 0.10, "command_name": "path_tracking"},
-        )
-        self.rewards.base_height_l2.weight = -0.3
-        self.rewards.base_height_l2.params["target_height"] = 0.24
-        self.rewards.base_lin_vel_z.weight = -0.3
-        self.rewards.base_ang_vel_xy.weight = -0.05
-        self.rewards.base_acc.weight = -2.5e-4
-        self.rewards.joint_torques_l2.weight = -1.0e-4
+        # Mild gait regularization to prevent joint jitter during crouch.
+        self.rewards.joint_mirror.weight = -0.3
         self.rewards.joint_vel_l2.weight = -1.0e-4
         self.rewards.joint_acc_l2.weight = -2.5e-7
-        self.rewards.joint_mirror.weight = -0.3
-        self.rewards.joint_pos_limits.weight = -5.0
-        self.rewards.joint_vel_limits.weight = -0.5
         self.rewards.action_rate_l2.weight = -0.01
-        self.rewards.flat_orientation_l2.weight = -1.0
 
         self.rewards.track_xy.weight = 5.0
         self.rewards.track_yaw.weight = 2.0

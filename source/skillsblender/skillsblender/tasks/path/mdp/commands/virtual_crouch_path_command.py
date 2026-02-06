@@ -21,11 +21,14 @@ class VirtualCrouchPathCommandCfg(VirtualJumpPathCommandCfg):
     crouch_length_range: Tuple[float, float] = (1.2, 2.0)
 
     def __post_init__(self):
-        self.jump_prob = self.crouch_prob
+        # Backward-compat: allow crouch_prob to set virtual_prob.
+        if getattr(self, "crouch_prob", 0.0):
+            self.virtual_prob = float(self.crouch_prob)
         self.jump_height_range = self.crouch_depth_range
+        self.gap_width_range = self.crouch_length_range
         self.jump_length_range = self.crouch_length_range
         self.skill_name = "crouch"
-        self.profile_type = "flat_down"
+        self.profile_type = "smooth_down"
         super().__post_init__()
         if getattr(self, "class_type", None) in (None, MISSING):
             self.class_type = VirtualCrouchPathCommand

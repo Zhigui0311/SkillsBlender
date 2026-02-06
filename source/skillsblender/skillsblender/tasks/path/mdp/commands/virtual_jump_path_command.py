@@ -18,8 +18,13 @@ if TYPE_CHECKING:
 class VirtualJumpPathCommandCfg(PathCommandCfg):
     """Config for virtual skill hallucination command generation on flat terrain."""
 
+    # Whether to inject a virtual segment for this resample.
+    virtual_prob: float = 0.5
+
     jump_prob: float = 0.02
     jump_height_range: Tuple[float, float] = (0.3, 0.5)
+    # Length of the virtual segment (gap width / crouch length / stairs run).
+    gap_width_range: Tuple[float, float] = (0.8, 1.2)
     jump_length_range: Tuple[float, float] = (0.8, 1.2)
     # Cooldown in seconds between consecutive virtual jumps.
     cool_down: float = 0.8
@@ -31,6 +36,9 @@ class VirtualJumpPathCommandCfg(PathCommandCfg):
     stairs_steps_range: Tuple[int, int] = (3, 6)
 
     def __post_init__(self):
+        # Backward-compat: use jump_prob if virtual_prob is not explicitly set.
+        if getattr(self, "jump_prob", 0.0) and getattr(self, "virtual_prob", None) is None:
+            self.virtual_prob = float(self.jump_prob)
         super().__post_init__()
         if getattr(self, "class_type", None) in (None, MISSING):
             self.class_type = VirtualJumpPathCommand
@@ -122,10 +130,15 @@ class VirtualJumpPathCommand(SegmentPathCommand):
             return "stairs_down"
         return "none"
 
-    def _generate_base_trajectory(self, env_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _generate_base_trajectory(
+        self,
+        env_ids: torch.Tensor,
+        total_len: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate a flat base trajectory before virtual jump injection."""
         n = len(env_ids)
-        total_len = self._sample_path_length(n)
+        if total_len is None:
+            total_len = self._sample_path_length(n)
         start = self._planned_start_pos[env_ids].clone()
         fwd = self._planned_forward_dir[env_ids]
         end = start.clone()
@@ -136,62 +149,17 @@ class VirtualJumpPathCommand(SegmentPathCommand):
         yaw_traj = self._planned_yaw[env_ids][:, None].repeat(1, self.num_waypoints)
         return pos_traj, yaw_traj, total_len
 
-    def _generate_trajectory(
+    def _apply_profile(
         self,
         env_ids: torch.Tensor,
-        remaining_s0: torch.Tensor | None = None,
-        remaining_s1: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Generate trajectory with virtual jump state-machine."""
-        n = len(env_ids)
-        pos_traj, yaw_traj, total_len = self._generate_base_trajectory(env_ids)
-
-        state = self._state[env_ids]
-        cooldown = self._cooldown[env_ids]
-        jumping = state == self.STATE_JUMPING
-
-        # Keep active jump continuity across command resampling windows.
-        if remaining_s0 is not None and remaining_s1 is not None:
-            self._jump_start_dist[env_ids] = torch.where(
-                jumping,
-                torch.clamp(remaining_s0, min=0.0),
-                self._jump_start_dist[env_ids],
-            )
-            self._jump_end_dist[env_ids] = torch.where(
-                jumping,
-                torch.clamp(remaining_s1, min=0.08),
-                self._jump_end_dist[env_ids],
-            )
-
-        # Idle -> Jumping transitions.
-        idle_ready = (state == self.STATE_IDLE) & (cooldown <= 0)
-        trigger = idle_ready & (torch.rand(n, device=self.device) < float(self.cfg.jump_prob))
-        if torch.any(trigger):
-            idx = torch.nonzero(trigger, as_tuple=False).squeeze(-1)
-            h = self._sample_uniform(len(idx), *self.cfg.jump_height_range)
-            jump_len = self._sample_uniform(len(idx), *self.cfg.jump_length_range)
-            stairs_steps = self._sample_steps(len(idx), *self.cfg.stairs_steps_range)
-
-            # Put jump in the forward corridor while preserving takeoff/landing room.
-            room_before = 0.8
-            room_after = 0.6
-            start_nominal = 0.35 * total_len[idx]
-            start_max = torch.clamp(total_len[idx] - jump_len - room_after, min=room_before)
-            jump_start = torch.minimum(torch.clamp(start_nominal, min=room_before), start_max)
-            jump_end = torch.minimum(jump_start + jump_len, total_len[idx] - room_after)
-
-            valid = jump_end > (jump_start + 0.08)
-            if torch.any(valid):
-                i_valid = idx[valid]
-                self._state[env_ids[i_valid]] = self.STATE_JUMPING
-                self._jump_start_dist[env_ids[i_valid]] = jump_start[valid]
-                self._jump_end_dist[env_ids[i_valid]] = jump_end[valid]
-                self._jump_height[env_ids[i_valid]] = h[valid]
-                self._stairs_steps[env_ids[i_valid]] = stairs_steps[valid]
-                self._on_trigger(env_ids[i_valid], jump_start[valid], jump_end[valid], h[valid], stairs_steps[valid])
-
-        # Apply parabola for all currently jumping envs.
+        pos_traj: torch.Tensor,
+        total_len: torch.Tensor,
+    ) -> torch.Tensor:
+        """Apply the virtual profile to the base trajectory."""
         jumping = self._state[env_ids] == self.STATE_JUMPING
+        if not torch.any(jumping):
+            return pos_traj
+
         s0 = self._jump_start_dist[env_ids]
         s1 = self._jump_end_dist[env_ids]
         h = self._jump_height[env_ids]
@@ -204,6 +172,15 @@ class VirtualJumpPathCommand(SegmentPathCommand):
             z_offset = 4.0 * h[:, None] * t * (1.0 - t)
         elif profile_type == "parabola_down":
             z_offset = -4.0 * h[:, None] * t * (1.0 - t)
+        elif profile_type == "smooth_down":
+            # Smooth down-up: smoothstep in/out with a flat plateau.
+            alpha = 0.2
+            t_up = torch.clamp(t / alpha, 0.0, 1.0)
+            t_dn = torch.clamp((1.0 - t) / alpha, 0.0, 1.0)
+            smooth_up = t_up * t_up * (3.0 - 2.0 * t_up)
+            smooth_dn = t_dn * t_dn * (3.0 - 2.0 * t_dn)
+            weight = smooth_up * smooth_dn
+            z_offset = -h[:, None] * weight
         elif profile_type == "flat_down":
             z_offset = -h[:, None] * ((t >= 0.0) & (t <= 1.0)).to(torch.float32)
         elif profile_type == "ramp_up":
@@ -225,8 +202,25 @@ class VirtualJumpPathCommand(SegmentPathCommand):
             z_offset = torch.zeros_like(t)
         mask = jumping[:, None] & (dist_at_wp >= s0[:, None]) & (dist_at_wp <= s1[:, None])
         pos_traj[..., 2] = pos_traj[..., 2] + torch.where(mask, z_offset, torch.zeros_like(z_offset))
+        return pos_traj
 
-        return pos_traj, yaw_traj, total_len
+    def _sample_segment_bounds(
+        self,
+        total_len: torch.Tensor,
+        seg_len: torch.Tensor,
+        start_ratio_min: float = 0.2,
+        start_ratio_max: float = 0.8,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Sample segment start/end distances within [start_ratio_min, start_ratio_max] of path length."""
+        min_start = total_len * float(start_ratio_min)
+        max_start = total_len * float(start_ratio_max)
+        # Keep some room after the segment.
+        max_start = torch.minimum(max_start, total_len - seg_len - 0.1 * total_len)
+        max_start = torch.maximum(max_start, min_start)
+        u = torch.rand_like(total_len)
+        s0 = min_start + (max_start - min_start) * u
+        s1 = s0 + seg_len
+        return s0, s1
 
     def _resample_command(self, env_ids: torch.Tensor):
         # Keep remaining jump distance before resetting the planned frame.
@@ -235,11 +229,60 @@ class VirtualJumpPathCommand(SegmentPathCommand):
         remaining_s1 = self._jump_end_dist[env_ids] - prev_s
 
         self._set_planned_frame_from_robot(env_ids)
-        pos_traj, yaw_traj, total_len = self._generate_trajectory(
-            env_ids,
-            remaining_s0=remaining_s0,
-            remaining_s1=remaining_s1,
-        )
+
+        # Sample base path length once for consistency.
+        total_len = self._sample_path_length(len(env_ids))
+
+        # Determine which envs trigger a virtual segment.
+        active_prev = self._state[env_ids] == self.STATE_JUMPING
+        prob = float(getattr(self.cfg, "virtual_prob", 0.0))
+        do_trigger = active_prev | (torch.rand(len(env_ids), device=self.device) < prob)
+
+        # Preserve ongoing segments across resampling.
+        if torch.any(active_prev):
+            self._jump_start_dist[env_ids] = torch.where(
+                active_prev,
+                torch.clamp(remaining_s0, min=0.0),
+                self._jump_start_dist[env_ids],
+            )
+            self._jump_end_dist[env_ids] = torch.where(
+                active_prev,
+                torch.clamp(remaining_s1, min=0.08),
+                self._jump_end_dist[env_ids],
+            )
+
+        # Initialize non-trigger envs to pure walk.
+        if torch.any(~do_trigger):
+            env_nt = env_ids[~do_trigger]
+            self._state[env_nt] = self.STATE_IDLE
+            self._jump_start_dist[env_nt] = 0.0
+            self._jump_end_dist[env_nt] = 0.0
+            self._jump_height[env_nt] = 0.0
+            self._stairs_steps[env_nt] = 0
+            if hasattr(self, "pitch_target"):
+                self.pitch_target[env_nt] = 0.0
+
+        # Sample new virtual segment for fresh triggers.
+        new_trigger = do_trigger & (~active_prev)
+        if torch.any(new_trigger):
+            env_t = env_ids[new_trigger]
+            n = len(env_t)
+            h = self._sample_uniform(n, *self.cfg.jump_height_range)
+            seg_len = self._sample_uniform(n, *self.cfg.gap_width_range)
+            seg_len = torch.minimum(seg_len, total_len[new_trigger] * 0.6)
+            seg_len = torch.clamp(seg_len, min=0.2)
+            stairs_steps = self._sample_steps(n, *self.cfg.stairs_steps_range)
+
+            s0, s1 = self._sample_segment_bounds(total_len[new_trigger], seg_len)
+            self._state[env_t] = self.STATE_JUMPING
+            self._jump_start_dist[env_t] = s0
+            self._jump_end_dist[env_t] = torch.maximum(s1, s0 + 0.1)
+            self._jump_height[env_t] = h
+            self._stairs_steps[env_t] = stairs_steps
+            self._on_trigger(env_t, s0, s1, h, stairs_steps)
+
+        pos_traj, yaw_traj, _ = self._generate_base_trajectory(env_ids, total_len=total_len)
+        pos_traj = self._apply_profile(env_ids, pos_traj, total_len)
 
         self._path_len[env_ids] = total_len
         self.pos_path_w[env_ids] = pos_traj
@@ -252,65 +295,73 @@ class VirtualJumpPathCommand(SegmentPathCommand):
         jump_s0 = self._jump_start_dist[env_ids]
         jump_s1 = self._jump_end_dist[env_ids]
 
-        lead_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(lead_params, "v_ref", 1.0)
-        self._append_segment(
-            env_ids,
-            self.SKILL_ID.get("walk", 0),
-            zero,
-            torch.where(jump_active, jump_s0, total_len),
-            params=lead_params,
-        )
+        # Non-trigger: pure walk path.
+        if torch.any(~jump_active):
+            env_nt = env_ids[~jump_active]
+            params = self._new_seg_params(len(env_nt))
+            self._set_seg_param(params, "v_ref", 1.0)
+            self._append_segment(env_nt, self.SKILL_WALK, zero[~jump_active], total_len[~jump_active], params=params)
 
-        jump_skill_id = int(self.SKILL_ID.get(self.cfg.skill_name, self.SKILL_ID.get("jump", self.SKILL_ID.get("walk", 0))))
-        jump_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(jump_params, "v_ref", 1.25)
-        self._set_seg_param(jump_params, "jump_height_ref", self._jump_height[env_ids])
-        if self.cfg.skill_name == "crouch":
-            self._set_seg_param(jump_params, "base_height_ref", 0.24)
-            self._set_seg_param(jump_params, "crouch_height_ref", -self._jump_height[env_ids])
-        if self.cfg.skill_name in ("stairs_up", "stairs_down"):
-            self._set_seg_param(jump_params, "clearance_ref", 0.16)
-            self._set_seg_param(jump_params, "step_height_ref", self._jump_height[env_ids])
-            self._set_seg_param(jump_params, "misc", self._stairs_steps[env_ids].to(torch.float32))
-        if self.cfg.skill_name == "climb":
-            self._set_seg_param(jump_params, "clearance_ref", 0.2)
-            slope_den = torch.clamp(jump_s1 - jump_s0, min=1.0e-3)
-            slope_angle = torch.atan(self._jump_height[env_ids] / slope_den)
-            self._set_seg_param(jump_params, "slope_angle_ref", slope_angle)
-        self._append_segment(
-            env_ids,
-            jump_skill_id,
-            torch.where(jump_active, jump_s0, total_len),
-            torch.where(jump_active, jump_s1, total_len),
-            params=jump_params,
-        )
+        # Triggered: walk -> skill -> walk.
+        if torch.any(jump_active):
+            env_t = env_ids[jump_active]
+            lead_params = self._new_seg_params(len(env_t))
+            self._set_seg_param(lead_params, "v_ref", 1.0)
+            self._append_segment(
+                env_t,
+                self.SKILL_WALK,
+                zero[jump_active],
+                jump_s0[jump_active],
+                params=lead_params,
+            )
 
-        trail_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(trail_params, "v_ref", 1.0)
-        self._append_segment(
-            env_ids,
-            self.SKILL_ID.get("walk", 0),
-            torch.where(jump_active, jump_s1, total_len),
-            total_len,
-            params=trail_params,
-        )
+            jump_skill_id = int(self.SKILL_ID.get(self.cfg.skill_name, self.SKILL_JUMP))
+            jump_params = self._new_seg_params(len(env_t))
+            self._set_seg_param(jump_params, "v_ref", 1.25)
+            self._set_seg_param(jump_params, "jump_height_ref", self._jump_height[env_t])
+            if self.cfg.skill_name == "crouch":
+                self._set_seg_param(jump_params, "base_height_ref", 0.24)
+                self._set_seg_param(jump_params, "crouch_height_ref", -self._jump_height[env_t])
+            if self.cfg.skill_name in ("stairs_up", "stairs_down"):
+                self._set_seg_param(jump_params, "clearance_ref", 0.16)
+                self._set_seg_param(jump_params, "step_height_ref", self._jump_height[env_t])
+                self._set_seg_param(jump_params, "misc", self._stairs_steps[env_t].to(torch.float32))
+            if self.cfg.skill_name == "climb":
+                self._set_seg_param(jump_params, "clearance_ref", 0.2)
+                slope = torch.zeros(len(env_t), device=self.device)
+                if hasattr(self, "pitch_target"):
+                    slope = self.pitch_target[env_t]
+                self._set_seg_param(jump_params, "slope_angle_ref", slope)
+
+            self._append_segment(
+                env_t,
+                jump_skill_id,
+                jump_s0[jump_active],
+                jump_s1[jump_active],
+                params=jump_params,
+            )
+
+            trail_params = self._new_seg_params(len(env_t))
+            self._set_seg_param(trail_params, "v_ref", 1.0)
+            self._append_segment(
+                env_t,
+                self.SKILL_WALK,
+                jump_s1[jump_active],
+                total_len[jump_active],
+                params=trail_params,
+            )
 
         self._num_segs[env_ids] = torch.clamp(self._num_segs[env_ids], min=1)
         self.current_waypoints_index[env_ids] = 0
         self.goal_reached[env_ids] = False
 
     def _update_command(self):
-        # Cooldown countdown.
-        self._cooldown = torch.clamp(self._cooldown - 1, min=0)
-
         # Jump completion detection.
         s = self._dist_along_planned()
         jumping = self._state == self.STATE_JUMPING
         finished = jumping & (s >= self._jump_end_dist)
         if torch.any(finished):
             self._state[finished] = self.STATE_IDLE
-            self._cooldown[finished] = self._cool_down_steps
             self._jump_start_dist[finished] = 0.0
             self._jump_end_dist[finished] = 0.0
             self._jump_height[finished] = 0.0

@@ -12,7 +12,7 @@ from isaaclab.utils import configclass
 
 import skillsblender.tasks.path.mdp as mdp
 from skillsblender.assets.robots.unitree import UNITREE_GO2_CFG
-from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg
+from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg, RewardsCfg, GO2_JOINT_NAMES
 from skillsblender.tasks.path.mdp.commands.virtual_stairs_path_command import (
     VirtualStairsPathCommand,
     VirtualStairsPathCommandCfg,
@@ -30,6 +30,88 @@ def track_path_pos_z_exp(
     command = env.command_manager.get_term(command_name)
     err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
     return torch.exp(-torch.square(err) / (std**2))
+
+
+@configclass
+class VirtualRewards(RewardsCfg):
+    """Reward shaping for virtual stairs: strong tracking, minimal penalties."""
+
+    is_terminated = RewTerm(func=mdp.is_terminated, weight=-200.0)
+
+    track_xy = RewTerm(
+        func=mdp.track_path_pos_xy_exp,
+        weight=8.0,
+        params={"std": 0.5, "command_name": "path_tracking"},
+    )
+    track_yaw = RewTerm(
+        func=mdp.track_path_heading_exp,
+        weight=4.0,
+        params={"std": 0.5, "command_name": "path_tracking"},
+    )
+    track_velocity_along_path_exp = RewTerm(
+        func=mdp.track_velocity_along_path_exp,
+        weight=4.0,
+        params={"std": 0.6, "command_name": "path_tracking", "desired_speed": 0.9},
+    )
+    track_z = RewTerm(
+        func=track_path_pos_z_exp,
+        weight=8.0,
+        params={"std": 0.10, "command_name": "path_tracking"},
+    )
+
+    base_height_l2 = RewTerm(
+        func=mdp.base_height_l2,
+        weight=0.0,
+        params={"target_height": 0.34, "asset_cfg": SceneEntityCfg("robot")},
+    )
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={})
+    undesired_contacts_hip = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=0.0,
+        params={
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=["Head_upper", "Head_lower", "RL_hip", "RR_hip"],
+            ),
+            "threshold": 1.0,
+        },
+    )
+    joint_torques_l2 = RewTerm(
+        func=mdp.joint_torques_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_vel_l2 = RewTerm(
+        func=mdp.joint_vel_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_acc_l2 = RewTerm(
+        func=mdp.joint_acc_l2,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    joint_vel_limits = RewTerm(
+        func=mdp.joint_vel_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES), "soft_ratio": 1.0},
+    )
+    joint_mirror = RewTerm(
+        func=mdp.joint_mirror,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot"), "mirror_joints": [["FR.*", "RL.*"], ["FL.*", "RR.*"]]},
+    )
+    applied_torque_limits = RewTerm(
+        func=mdp.applied_torque_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2_JOINT_NAMES)},
+    )
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=0.0)
 
 
 @configclass
@@ -62,6 +144,7 @@ class VirtualStairsCurriculumCfg:
 class Go2VirtualStairsEnvCfg(PathEnvCfg):
     """Virtual stairs training on flat terrain only."""
     curriculum: VirtualStairsCurriculumCfg = VirtualStairsCurriculumCfg()
+    rewards: VirtualRewards = VirtualRewards()
 
     def __post_init__(self):
         super().__post_init__()
@@ -70,8 +153,8 @@ class Go2VirtualStairsEnvCfg(PathEnvCfg):
         self.commands.path_tracking = VirtualStairsPathCommandCfg(
             class_type=VirtualStairsPathCommand,
             asset_name="robot",
-            resampling_time_range=(3.0, 12.0),
-            run_prob=0.25,
+            resampling_time_range=(1.0, 3.0),
+            virtual_prob=0.50,
             stairs_up_prob=0.5,
             step_height=0.15,
             step_width=0.30,
@@ -79,7 +162,7 @@ class Go2VirtualStairsEnvCfg(PathEnvCfg):
             max_up_height=0.40,
             max_down_depth=0.25,
             down_pitch_deg=-10.0,
-            cool_down=0.8,
+            cool_down=0.3,
             debug_vis=True,
         )
 
@@ -89,15 +172,10 @@ class Go2VirtualStairsEnvCfg(PathEnvCfg):
             }
             self.scene.terrain.terrain_generator.difficulty_range = (0.0, 0.0)
 
-        self.rewards.track_z = RewTerm(
-            func=track_path_pos_z_exp,
-            weight=10.0,
-            params={"std": 0.10, "command_name": "path_tracking"},
-        )
         # Feet-clearance shaping: strong positive weight to encourage high stepping.
         self.rewards.feet_clearance = RewTerm(
             func=mdp.feet_height_body,
-            weight=5.0,
+            weight=6.0,
             params={
                 "command_name": "path_tracking",
                 "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
@@ -107,13 +185,6 @@ class Go2VirtualStairsEnvCfg(PathEnvCfg):
                 "jump_only": False,
             },
         )
-
-        self.rewards.base_lin_vel_z.weight = 0.0
-        self.rewards.joint_torques_l2.weight = -2.0e-5
-        self.rewards.track_xy.weight = 5.0
-        self.rewards.track_yaw.weight = 2.0
-        self.rewards.track_velocity_along_path_exp.weight = 2.8
-        self.rewards.stalling_penalty.weight = -1.0
 
         self.terminations.path_deviation.params["min_threshold"] = 0.8
         self.terminations.path_deviation.params["max_threshold"] = 6.0

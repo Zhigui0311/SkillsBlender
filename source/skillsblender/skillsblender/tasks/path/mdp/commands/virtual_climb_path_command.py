@@ -26,7 +26,9 @@ class VirtualClimbPathCommandCfg(VirtualJumpPathCommandCfg):
     pitch_random_sign: bool = True
 
     def __post_init__(self):
-        self.jump_prob = self.climb_prob
+        if getattr(self, "climb_prob", 0.0):
+            self.virtual_prob = float(self.climb_prob)
+        self.gap_width_range = self.climb_length_range
         self.jump_length_range = self.climb_length_range
         self.skill_name = "climb"
         # Keep path Z unchanged; climb is enforced via pitch target only.
