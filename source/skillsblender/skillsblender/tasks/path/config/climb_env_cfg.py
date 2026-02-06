@@ -17,7 +17,7 @@ import skillsblender.tasks.path.mdp as mdp
 
 CLIMB_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
-    border_width=20.0,
+    border_width=4.0,
     num_rows=10,
     num_cols=20,
     horizontal_scale=0.1,
@@ -26,22 +26,8 @@ CLIMB_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     difficulty_range=(0.0, 1.0),
     use_cache=False,
     sub_terrains={
-        # 20% flat terrain for approach
-        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.2),
-        # 60% pyramid slopes (up)
-        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-            proportion=0.6,
-            slope_range=(0.10, 0.45),  # 10-45 degree slopes
-            platform_width=2.0,
-            border_width=0.25
-        ),
-        # 20% inverted pyramid slopes (down)
-        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-            proportion=0.2,
-            slope_range=(0.10, 0.45),
-            platform_width=2.0,
-            border_width=0.25
-        ),
+        # Flat ground; climb is defined by the step and top platform props.
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=1.0),
     },
 )
 
@@ -104,6 +90,7 @@ class ClimbPathEnvCfg(PathEnvCfg):
 
         # Use climb scene
         self.scene: MyClimbSceneCfg = MyClimbSceneCfg(num_envs=4096, env_spacing=2.5)
+        self.scene.env_spacing = 4.0
         self.commands.path_tracking.class_type = mdp.commands.ClimbPathCommand
         self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "climb", "walk"]
         self.commands.path_tracking.sampling.yaw_type = "fixed"
@@ -144,3 +131,9 @@ class ClimbPathEnvCfg(PathEnvCfg):
         # Smooth motion
         self.rewards.action_rate_l2.weight = -0.01
         self.rewards.joint_acc_l2.weight = -2.5e-7
+
+        # Camera: keep robot visible during climb.
+        self.viewer.origin_type = "asset_root"
+        self.viewer.asset_name = "robot"
+        self.viewer.eye = (3.0, 3.0, 2.0)
+        self.viewer.lookat = (0.0, 0.0, 0.4)

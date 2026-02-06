@@ -4,6 +4,7 @@ from dataclasses import MISSING
 from typing import TYPE_CHECKING, Tuple
 
 import torch
+
 from isaaclab.utils import configclass
 
 from .virtual_jump_path_command import VirtualJumpPathCommand, VirtualJumpPathCommandCfg
@@ -17,15 +18,21 @@ class VirtualClimbPathCommandCfg(VirtualJumpPathCommandCfg):
     """Virtual climb command config (flat terrain hallucination)."""
 
     climb_prob: float = 0.02
-    climb_height_range: Tuple[float, float] = (0.22, 0.45)
+    # Legacy height range (unused for Z, kept for curriculum compatibility).
+    climb_height_range: Tuple[float, float] = (0.0, 0.0)
     climb_length_range: Tuple[float, float] = (1.0, 1.8)
+    # Target pitch angle magnitude in degrees (± range).
+    pitch_deg_range: Tuple[float, float] = (15.0, 15.0)
+    pitch_random_sign: bool = True
 
     def __post_init__(self):
         self.jump_prob = self.climb_prob
-        self.jump_height_range = self.climb_height_range
         self.jump_length_range = self.climb_length_range
         self.skill_name = "climb"
-        self.profile_type = "ramp_up"
+        # Keep path Z unchanged; climb is enforced via pitch target only.
+        self.profile_type = "none"
+        # No vertical hallucination for climb (kept for curriculum compatibility).
+        self.jump_height_range = self.climb_height_range
         super().__post_init__()
         if getattr(self, "class_type", None) in (None, MISSING):
             self.class_type = VirtualClimbPathCommand
@@ -34,30 +41,50 @@ class VirtualClimbPathCommandCfg(VirtualJumpPathCommandCfg):
 class VirtualClimbPathCommand(VirtualJumpPathCommand):
     """Virtual climb command with synthetic slope-state outputs."""
 
-    cfg: VirtualClimbPathCommandCfg
+    cfg: "VirtualClimbPathCommandCfg"
 
-    def __init__(self, cfg: VirtualClimbPathCommandCfg, env: ManagerBasedRLEnv):
+    def __init__(self, cfg: "VirtualClimbPathCommandCfg", env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
-        # Optional synthetic gravity projection in body frame for debugging/custom observations.
-        self.virtual_projected_gravity_b = torch.zeros(self.num_envs, 3, device=self.device)
-        self.virtual_projected_gravity_b[:, 2] = -1.0
-        self.heading_target = torch.zeros(self.num_envs, device=self.device)
+        # Pitch target (radians) used by the virtual climb reward.
+        self.pitch_target = torch.zeros(self.num_envs, device=self.device)
 
     @property
     def is_in_climb_phase(self):
         return self.is_in_skill_phase("climb")
 
+    def _on_trigger(
+        self,
+        env_ids: torch.Tensor,
+        jump_start: torch.Tensor,
+        jump_end: torch.Tensor,
+        jump_height: torch.Tensor,
+        stairs_steps: torch.Tensor,
+    ):
+        # Sample pitch target in degrees, convert to radians.
+        pitch_deg = self._sample_uniform(len(env_ids), *self.cfg.pitch_deg_range)
+        pitch_rad = torch.deg2rad(pitch_deg)
+        if self.cfg.pitch_random_sign:
+            sign = torch.where(
+                torch.rand(len(env_ids), device=self.device) < 0.5,
+                torch.full((len(env_ids),), -1.0, device=self.device),
+                torch.ones(len(env_ids), device=self.device),
+            )
+            pitch_rad = pitch_rad * sign
+        self.pitch_target[env_ids] = pitch_rad
+
+    def _on_finish(self, env_ids: torch.Tensor):
+        self.pitch_target[env_ids] = 0.0
+
+    def _on_reset(self, env_ids: torch.Tensor):
+        self.pitch_target[env_ids] = 0.0
+
     def _resample_command(self, env_ids: torch.Tensor):
         super()._resample_command(env_ids)
-        self.heading_target[env_ids] = self._planned_yaw[env_ids]
-
-        seg_len = torch.clamp(self._jump_end_dist[env_ids] - self._jump_start_dist[env_ids], min=1.0e-3)
-        pitch = torch.atan(self._jump_height[env_ids] / seg_len)
         active = self._state[env_ids] == self.STATE_JUMPING
-        g = torch.zeros(len(env_ids), 3, device=self.device)
-        g[:, 0] = torch.sin(pitch)
-        g[:, 2] = -torch.cos(pitch)
-        # Only publish synthetic slope gravity for active climb windows.
-        default_g = torch.zeros_like(g)
-        default_g[:, 2] = -1.0
-        self.virtual_projected_gravity_b[env_ids] = torch.where(active[:, None], g, default_g)
+        if self.has_seg_params and self._seg_params is not None:
+            slope_idx = self.SEG_PARAM.get("slope_angle_ref", None)
+            if slope_idx is not None and slope_idx < self.num_seg_params:
+                env_sel = env_ids[active]
+                if env_sel.numel() > 0:
+                    # climb segment is the second segment (index 1) when active.
+                    self._seg_params[env_sel, 1, slope_idx] = self.pitch_target[env_sel]

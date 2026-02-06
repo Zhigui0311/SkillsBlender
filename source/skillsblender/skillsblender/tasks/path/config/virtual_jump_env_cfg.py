@@ -84,7 +84,7 @@ class Go2VirtualJumpEnvCfg(PathEnvCfg):
                 end_heading=(0.0, 0.0),
                 sample_goal_distance=True,
             ),
-            jump_prob=0.02,
+            jump_prob=0.25,
             jump_height_range=(0.3, 0.5),
             jump_length_range=(0.8, 1.2),
             cool_down=0.8,
@@ -106,8 +106,16 @@ class Go2VirtualJumpEnvCfg(PathEnvCfg):
             weight=10.0,
             params={"std": 0.10, "command_name": "path_tracking"},
         )
+        self.rewards.base_height_l2.weight = 0.0
         self.rewards.base_lin_vel_z.weight = 0.0
-        self.rewards.joint_torques_l2.weight = -2.0e-5
+        self.rewards.base_ang_vel_xy.weight = -0.05
+        self.rewards.base_acc.weight = -2.5e-4
+        self.rewards.joint_torques_l2.weight = -5.0e-5
+        self.rewards.joint_vel_l2.weight = -1.0e-4
+        self.rewards.joint_acc_l2.weight = -2.5e-7
+        self.rewards.joint_mirror.weight = -0.25
+        self.rewards.action_rate_l2.weight = -0.005
+        self.rewards.flat_orientation_l2.weight = -0.5
 
         # Keep base tracking objectives active.
         self.rewards.track_xy.weight = 5.0

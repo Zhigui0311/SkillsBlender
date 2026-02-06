@@ -130,7 +130,12 @@ class Go2CrouchEnvCfg_PLAY(Go2CrouchEnvCfg):
         self.events.push_robot = None
         self.curriculum = None
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.viewer.origin_type = "env"
+        # Keep camera locked to the robot while showing the obstacle corridor.
+        self.viewer.origin_type = "asset_body"
+        self.viewer.asset_name = "robot"
+        self.viewer.body_name = "base"
+        self.viewer.eye = (-2.0, 1.0, 1.1)
+        self.viewer.lookat = (1.5, 0.0, 0.25)
         self.commands.path_tracking.debug_vis = True
         self.observations.policy.enable_corruption = False
 
@@ -142,3 +147,9 @@ class Go2CrouchCurEnvCfg_PLAY(Go2CrouchCurEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.curriculum = None
+        # Match crouch play camera behavior.
+        self.viewer.origin_type = "asset_body"
+        self.viewer.asset_name = "robot"
+        self.viewer.body_name = "base"
+        self.viewer.eye = (-2.0, 1.0, 1.1)
+        self.viewer.lookat = (1.5, 0.0, 0.25)

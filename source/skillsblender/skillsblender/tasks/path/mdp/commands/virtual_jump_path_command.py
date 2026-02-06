@@ -26,7 +26,7 @@ class VirtualJumpPathCommandCfg(PathCommandCfg):
     # Reusable across skills by changing skill_name/profile_type.
     skill_name: str = "jump"
     # auto -> infer from skill_name; or explicit:
-    # none/parabola_up/parabola_down/flat_down/ramp_up/stairs_up/stairs_down
+    # none/parabola_up/parabola_down/flat_down/ramp_up/stairs/stairs_up/stairs_down
     profile_type: str = "auto"
     stairs_steps_range: Tuple[int, int] = (3, 6)
 
@@ -77,6 +77,7 @@ class VirtualJumpPathCommand(SegmentPathCommand):
         self._jump_end_dist[env_ids] = 0.0
         self._jump_height[env_ids] = 0.0
         self._stairs_steps[env_ids] = 0
+        self._on_reset(env_ids)
         return super().reset(env_ids)
 
     def _sample_uniform(self, n: int, low: float, high: float) -> torch.Tensor:
@@ -113,6 +114,8 @@ class VirtualJumpPathCommand(SegmentPathCommand):
             return "flat_down"
         if s == "climb":
             return "ramp_up"
+        if s == "stairs":
+            return "stairs"
         if s == "stairs_up":
             return "stairs_up"
         if s == "stairs_down":
@@ -185,6 +188,7 @@ class VirtualJumpPathCommand(SegmentPathCommand):
                 self._jump_end_dist[env_ids[i_valid]] = jump_end[valid]
                 self._jump_height[env_ids[i_valid]] = h[valid]
                 self._stairs_steps[env_ids[i_valid]] = stairs_steps[valid]
+                self._on_trigger(env_ids[i_valid], jump_start[valid], jump_end[valid], h[valid], stairs_steps[valid])
 
         # Apply parabola for all currently jumping envs.
         jumping = self._state[env_ids] == self.STATE_JUMPING
@@ -205,12 +209,17 @@ class VirtualJumpPathCommand(SegmentPathCommand):
         elif profile_type == "ramp_up":
             smooth = 3.0 * t * t - 2.0 * t * t * t
             z_offset = h[:, None] * smooth
-        elif profile_type in ("stairs_up", "stairs_down"):
+        elif profile_type in ("stairs", "stairs_up", "stairs_down"):
             n_steps = torch.clamp(self._stairs_steps[env_ids], min=1).to(torch.float32)
             step_idx = torch.floor(t * n_steps[:, None]).clamp(min=0.0)
             stair = (step_idx / n_steps[:, None]).clamp(max=1.0)
             z_offset = h[:, None] * stair
-            if profile_type == "stairs_down":
+            if profile_type == "stairs":
+                stairs_dir = getattr(self, "_stairs_dir", None)
+                if stairs_dir is not None:
+                    dir_sign = torch.sign(stairs_dir[env_ids]).clamp(min=-1.0, max=1.0)
+                    z_offset = z_offset * dir_sign[:, None]
+            elif profile_type == "stairs_down":
                 z_offset = -z_offset
         else:
             z_offset = torch.zeros_like(t)
@@ -306,3 +315,23 @@ class VirtualJumpPathCommand(SegmentPathCommand):
             self._jump_end_dist[finished] = 0.0
             self._jump_height[finished] = 0.0
             self._stairs_steps[finished] = 0
+            self._on_finish(finished)
+
+    def _on_trigger(
+        self,
+        env_ids: torch.Tensor,
+        jump_start: torch.Tensor,
+        jump_end: torch.Tensor,
+        jump_height: torch.Tensor,
+        stairs_steps: torch.Tensor,
+    ):
+        """Hook for subclasses to capture per-trigger state."""
+        return
+
+    def _on_finish(self, env_ids: torch.Tensor):
+        """Hook for subclasses to clear per-env state when virtual segment ends."""
+        return
+
+    def _on_reset(self, env_ids: torch.Tensor):
+        """Hook for subclasses to clear per-env state on reset."""
+        return

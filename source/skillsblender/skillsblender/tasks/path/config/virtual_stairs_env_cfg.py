@@ -71,11 +71,14 @@ class Go2VirtualStairsEnvCfg(PathEnvCfg):
             class_type=VirtualStairsPathCommand,
             asset_name="robot",
             resampling_time_range=(3.0, 12.0),
-            stairs_prob=0.02,
-            step_height_range=(0.12, 0.20),
-            step_width_range=(0.25, 0.40),
-            num_steps_range=(3, 6),
-            direction="up",
+            run_prob=0.25,
+            stairs_up_prob=0.5,
+            step_height=0.15,
+            step_width=0.30,
+            stairs_length_range=(1.2, 2.4),
+            max_up_height=0.40,
+            max_down_depth=0.25,
+            down_pitch_deg=-10.0,
             cool_down=0.8,
             debug_vis=True,
         )
@@ -91,14 +94,14 @@ class Go2VirtualStairsEnvCfg(PathEnvCfg):
             weight=10.0,
             params={"std": 0.10, "command_name": "path_tracking"},
         )
-        # Feet-clearance shaping: negative weight on low swing-foot penalty => encourage lift.
+        # Feet-clearance shaping: strong positive weight to encourage high stepping.
         self.rewards.feet_clearance = RewTerm(
             func=mdp.feet_height_body,
-            weight=-4.0,
+            weight=5.0,
             params={
                 "command_name": "path_tracking",
                 "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
-                "target_height": -0.10,
+                "target_height": 0.15,
                 "dis_threshold": 0.30,
                 "heading_threshold": 0.60,
                 "jump_only": False,
@@ -126,9 +129,8 @@ class Go2VirtualStairsDownEnvCfg(Go2VirtualStairsEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        self.commands.path_tracking.direction = "down"
-        self.commands.path_tracking.skill_name = "stairs_down"
-        self.commands.path_tracking.profile_type = "stairs_down"
+        # Force down-stairs by setting up-probability to zero.
+        self.commands.path_tracking.stairs_up_prob = 0.0
 
 
 @configclass

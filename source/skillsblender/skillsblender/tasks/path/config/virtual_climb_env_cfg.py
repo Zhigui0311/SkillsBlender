@@ -8,6 +8,7 @@ import isaaclab.terrains as terrain_gen
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.utils import configclass
+from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
 
 import skillsblender.tasks.path.mdp as mdp
 from skillsblender.assets.robots.unitree import UNITREE_GO2_CFG
@@ -29,6 +30,26 @@ def track_path_pos_z_exp(
     command = env.command_manager.get_term(command_name)
     err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
     return torch.exp(-torch.square(err) / (std**2))
+
+
+def track_base_pitch(
+    env: ManagerBasedRLEnv,
+    std: float = 0.25,
+    command_name: str = "path_tracking",
+) -> torch.Tensor:
+    """Track target base pitch from virtual climb command."""
+    command = env.command_manager.get_term(command_name)
+    if not hasattr(command, "pitch_target"):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    quat = env.scene["robot"].data.root_quat_w
+    _, pitch, _ = euler_xyz_from_quat(quat)
+    target_pitch = command.pitch_target
+    err = wrap_to_pi(pitch - target_pitch)
+    reward = torch.exp(-torch.square(err) / (std**2))
+    if hasattr(command, "is_in_climb_phase"):
+        reward = torch.where(command.is_in_climb_phase, reward, torch.zeros_like(reward))
+    return reward
 
 
 @configclass
@@ -61,9 +82,9 @@ class Go2VirtualClimbEnvCfg(PathEnvCfg):
             class_type=VirtualClimbPathCommand,
             asset_name="robot",
             resampling_time_range=(3.0, 12.0),
-            climb_prob=0.02,
-            climb_height_range=(0.22, 0.45),
+            climb_prob=0.25,
             climb_length_range=(1.0, 1.8),
+            pitch_deg_range=(15.0, 15.0),
             cool_down=0.8,
             debug_vis=True,
         )
@@ -78,6 +99,11 @@ class Go2VirtualClimbEnvCfg(PathEnvCfg):
             func=track_path_pos_z_exp,
             weight=10.0,
             params={"std": 0.10, "command_name": "path_tracking"},
+        )
+        self.rewards.track_base_pitch = RewTerm(
+            func=track_base_pitch,
+            weight=5.0,
+            params={"std": 0.25, "command_name": "path_tracking"},
         )
         self.rewards.base_lin_vel_z.weight = 0.0
         self.rewards.joint_torques_l2.weight = -2.0e-5

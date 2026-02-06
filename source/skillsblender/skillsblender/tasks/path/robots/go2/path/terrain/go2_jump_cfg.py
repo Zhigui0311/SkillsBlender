@@ -25,9 +25,11 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         self.observations.policy.joint_vel.scale = 0.05
 
         #task
-        self.rewards.jump_height_tracking.weight = 4.0  # 3.0 → 4.0
-        self.rewards.jump_landing_stability.weight = 2.5  # 2.0 → 2.5
-        self.rewards.jump_forward_velocity.weight = 2.5
+        self.rewards.jump_height_tracking.weight = 6.0
+        self.rewards.jump_landing_stability.weight = 2.5
+        self.rewards.jump_forward_velocity.weight = 3.0
+        self.rewards.jump_clearance.weight = 4.0
+        self.rewards.jump_air_time.weight = 2.0
         self.rewards.approach_momentum_reward.weight = 2.0
         self.rewards.approach_momentum_reward.params["min_velocity"] = 1.1
         self.rewards.approach_momentum_reward.params["approach_distance"] = 1.2
@@ -35,13 +37,13 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         # emphasize tracking the planned trajectory
         self.rewards.track_xy.weight = 8.0
         self.rewards.track_yaw.weight = 4.0
-        self.rewards.track_velocity.weight = 6.0
+        self.rewards.track_velocity.weight = 4.0
         
         # # Base 
         # self.rewards.base_height.weight = -10.0  #！1 这个奖励还没有写
         self.rewards.base_height_l2.weight = 0
         self.rewards.flat_orientation.weight = -0.5
-        self.rewards.base_lin_vel_z.weight = -0.7
+        self.rewards.base_lin_vel_z.weight = 0.0
         self.rewards.base_ang_vel_xy.weight = -0.05
         self.rewards.base_acc.weight = -5e-4
 
@@ -74,10 +76,10 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
         self.commands.path_tracking.ranges.default_path_len = 5.6
-        self.commands.path_tracking.jump_params.jump_height = 0.45
-        self.commands.path_tracking.jump_params.min_gap_start_dist = 1.6
-        self.commands.path_tracking.jump_params.min_gap_width = 0.35
-        self.commands.path_tracking.jump_params.max_gap_width = 0.9
+        self.commands.path_tracking.jump_params.jump_height = 0.55
+        self.commands.path_tracking.jump_params.min_gap_start_dist = 1.8
+        self.commands.path_tracking.jump_params.min_gap_width = 0.5
+        self.commands.path_tracking.jump_params.max_gap_width = 1.1
         self.commands.path_tracking.jump_params.min_jump_start_dist = 1.0
         self.commands.path_tracking.jump_params.min_landing_runout = 1.2
         self.commands.path_tracking.jump_params.approach_phase_window = 1.1

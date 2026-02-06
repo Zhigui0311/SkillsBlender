@@ -61,7 +61,7 @@ class Go2VirtualCrouchEnvCfg(PathEnvCfg):
             class_type=VirtualCrouchPathCommand,
             asset_name="robot",
             resampling_time_range=(3.0, 12.0),
-            jump_prob=0.02,
+            crouch_prob=0.25,
             crouch_depth_range=(0.22, 0.34),
             crouch_length_range=(1.2, 2.0),
             cool_down=0.8,
@@ -79,9 +79,19 @@ class Go2VirtualCrouchEnvCfg(PathEnvCfg):
             weight=10.0,
             params={"std": 0.10, "command_name": "path_tracking"},
         )
-        self.rewards.base_height_l2.weight = 0.0
-        self.rewards.base_lin_vel_z.weight = 0.0
-        self.rewards.joint_torques_l2.weight = -2.0e-5
+        self.rewards.base_height_l2.weight = -0.3
+        self.rewards.base_height_l2.params["target_height"] = 0.24
+        self.rewards.base_lin_vel_z.weight = -0.3
+        self.rewards.base_ang_vel_xy.weight = -0.05
+        self.rewards.base_acc.weight = -2.5e-4
+        self.rewards.joint_torques_l2.weight = -1.0e-4
+        self.rewards.joint_vel_l2.weight = -1.0e-4
+        self.rewards.joint_acc_l2.weight = -2.5e-7
+        self.rewards.joint_mirror.weight = -0.3
+        self.rewards.joint_pos_limits.weight = -5.0
+        self.rewards.joint_vel_limits.weight = -0.5
+        self.rewards.action_rate_l2.weight = -0.01
+        self.rewards.flat_orientation_l2.weight = -1.0
 
         self.rewards.track_xy.weight = 5.0
         self.rewards.track_yaw.weight = 2.0

@@ -136,6 +136,14 @@ class CrouchPathEnvCfg(PathEnvCfg):
         ]
         self.terminations.base_contact.params["threshold"] = 0.6
 
+        # Camera: show both robot and obstacle corridor during crouch.
+        self.viewer.origin_type = "asset_body"
+        self.viewer.asset_name = "robot"
+        self.viewer.body_name = "base"
+        # Third-person follow cam: above/behind, looking slightly ahead.
+        self.viewer.eye = (-2.0, 1.0, 1.1)
+        self.viewer.lookat = (1.5, 0.0, 0.25)
+
         # Smooth motion
         self.rewards.action_rate_l2.weight = -0.01
         self.rewards.joint_acc_l2.weight = -2.5e-7

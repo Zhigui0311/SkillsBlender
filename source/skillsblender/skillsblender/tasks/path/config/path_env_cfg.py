@@ -723,6 +723,7 @@ class PathEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.render_interval = 2
         self.sim.physics_material = self.scene.terrain.physics_material
         self.viewer.asset_name = "robot"
+        # Keep default camera origin for general tasks (override in specific skills if needed).
         self.viewer.origin_type = "asset"
         self.viewer.eye = (3.0, 3.0, 3.0)
         self.viewer.lookat = (0.0, 0.0, 0.0)

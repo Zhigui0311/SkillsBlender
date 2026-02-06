@@ -24,15 +24,15 @@ CUR_JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
 
         # 2. 窄沟壑 - 调整为更温和的初始范围
         "narrow_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.40,  # Updated: 调整比例
-            gap_width_range=(0.2, 0.3),  # Updated: 更窄的初始范围
+            proportion=0.40,
+            gap_width_range=(0.4, 0.6),
             platform_width=2.0,
         ),
 
         # 3. 宽沟壑：用于进阶跳跃训练
         "wide_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.10,  # Updated: 减少初始比例
-            gap_width_range=(0.3, 0.5),  # Updated: 调整为中等宽度
+            proportion=0.10,
+            gap_width_range=(0.6, 0.8),
             platform_width=2.5,
         ),
     },
@@ -47,9 +47,9 @@ class JumpCurriculumCfg:
         func=mdp.curriculum_jump_gap_width,
         params={
             "reward_threshold": 70.0,  # Updated: 提高阈值从50.0到70.0
-            "initial_gap_range": (0.2, 0.3),  # Updated: 更温和的起始范围
-            "intermediate_gap_range": (0.3, 0.5),  # New: 中级范围
-            "final_gap_range": (0.5, 0.8),  # Updated: 降低最大宽度
+            "initial_gap_range": (0.4, 0.6),
+            "intermediate_gap_range": (0.6, 0.8),
+            "final_gap_range": (0.8, 1.1),
             "step_size": 0.1
         }
     )
@@ -60,8 +60,8 @@ class JumpCurriculumCfg:
         params={
             "command_name": "path_tracking",
             "reward_threshold": 80.0,  # Updated: 提高阈值从60.0到80.0
-            "initial_height": 0.20,  # Updated: 降低初始高度
-            "final_height": 0.40,  # Updated: 降低最终高度
+            "initial_height": 0.25,
+            "final_height": 0.55,
             "step_size": 0.03  # Updated: 减小步长
         }
     )
@@ -119,7 +119,7 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.ranges.waypoint_reach_threshold = 0.6
         self.commands.path_tracking.ranges.default_path_len = 5.6
         self.commands.path_tracking.jump_params.scan_step = 0.05
-        self.commands.path_tracking.jump_params.scan_width = 0.2
+        self.commands.path_tracking.jump_params.scan_width = 0.4
         self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "jump", "walk"]
         
         # Configurable jump trajectory parameters
@@ -130,9 +130,9 @@ class Go2JumpCurEnvCfg(Go2JumpEnvCfg):
         self.commands.path_tracking.jump_params.landing_margin = 0.5
         self.commands.path_tracking.jump_params.post_jump_distance = 0.0  # 0 = stop at landing
         self.commands.path_tracking.jump_params.heading_offset_range = (0.0, 0.0)
-        self.commands.path_tracking.jump_params.min_gap_start_dist = 1.5
-        self.commands.path_tracking.jump_params.min_gap_width = 0.35
-        self.commands.path_tracking.jump_params.max_gap_width = 0.9
+        self.commands.path_tracking.jump_params.min_gap_start_dist = 1.8
+        self.commands.path_tracking.jump_params.min_gap_width = 0.5
+        self.commands.path_tracking.jump_params.max_gap_width = 1.1
         self.commands.path_tracking.jump_params.min_jump_start_dist = 1.0
         self.commands.path_tracking.jump_params.min_landing_runout = 1.2
         self.commands.path_tracking.jump_params.approach_phase_window = 1.1

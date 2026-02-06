@@ -4,6 +4,7 @@ import torch
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import Articulation
+from isaaclab.markers import VisualizationMarkers
 from isaaclab.managers import CommandTerm
 from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
 
@@ -117,6 +118,9 @@ class SegmentPathCommand(CommandTerm):
         self.obs_slices = torch.zeros(self.num_envs, self.num_lookahead_waypoints, 4, device=self.device)
         self.obs_meta = torch.zeros(self.num_envs, self._meta_dim(), device=self.device)
 
+        # goal-hold state (freeze command after reaching goal)
+        self._goal_hold = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+
     def _new_seg_params(self, batch_size: int) -> torch.Tensor | None:
         """Create per-segment param tensor; returns None when params are disabled."""
         if not self.has_seg_params:
@@ -207,6 +211,7 @@ class SegmentPathCommand(CommandTerm):
     def reset(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
+        self._goal_hold[env_ids] = False
         return super().reset(env_ids)
 
     def update(self):
@@ -343,6 +348,11 @@ class SegmentPathCommand(CommandTerm):
     def _update_slice_and_meta(self):
         self._select_current_segment()
         self._advance_waypoint_index()
+        # Freeze command at goal to keep robot stationary after reaching endpoint.
+        new_hold = self.goal_reached & (~self._goal_hold)
+        if torch.any(new_hold):
+            env_ids = torch.nonzero(new_hold, as_tuple=False).squeeze(-1)
+            self._apply_goal_hold(env_ids)
 
         N = self.num_envs
         W = self.num_waypoints
@@ -432,6 +442,65 @@ class SegmentPathCommand(CommandTerm):
                 parts.append(next_params)
 
         self.obs_meta = torch.cat(parts, dim=-1)
+
+    def _apply_goal_hold(self, env_ids: torch.Tensor):
+        """Freeze command at the current robot pose to encourage standing still at the goal."""
+        if env_ids.numel() == 0:
+            return
+
+        robot_pos = self.robot.data.root_pos_w[env_ids, :3]
+        quat = self.robot.data.root_quat_w[env_ids]
+        _, _, yaw = euler_xyz_from_quat(quat)
+
+        self._planned_start_pos[env_ids] = robot_pos
+        self._planned_yaw[env_ids] = yaw
+        fwd = torch.stack([torch.cos(yaw), torch.sin(yaw)], dim=-1)
+        left = torch.stack([-torch.sin(yaw), torch.cos(yaw)], dim=-1)
+        self._planned_forward_dir[env_ids] = fwd
+        self._planned_left_dir[env_ids] = left
+
+        self._path_len[env_ids] = 1.0
+        self.pos_path_w[env_ids] = robot_pos[:, None, :].repeat(1, self.num_waypoints, 1)
+        self.heading_path_w[env_ids, :, 0] = yaw[:, None].repeat(1, self.num_waypoints)
+
+        self._clear_segments(env_ids)
+        s0 = torch.zeros(len(env_ids), device=self.device)
+        s1 = torch.ones(len(env_ids), device=self.device)
+        params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(params, "v_ref", 0.0)
+        self._append_segment(env_ids, self.SKILL_WALK, s0, s1, params=params)
+        self._num_segs[env_ids] = torch.clamp(self._num_segs[env_ids], min=1)
+
+        self.current_waypoints_index[env_ids] = 0
+        self.time_left[env_ids] = 1.0e9
+        self._goal_hold[env_ids] = True
+
+    # ----------------- debug visualization -----------------
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        if debug_vis:
+            if not hasattr(self, "path_waypoints_visualizer"):
+                self.path_waypoints_visualizer = VisualizationMarkers(self.cfg.path_waypoints_visualizer_cfg)
+                self.goal_visualizer = VisualizationMarkers(self.cfg.path_goal_visualizer_cfg)
+                self.start_visualizer = VisualizationMarkers(self.cfg.path_start_visualizer_cfg)
+            self.path_waypoints_visualizer.set_visibility(True)
+            self.goal_visualizer.set_visibility(True)
+            self.start_visualizer.set_visibility(True)
+        else:
+            if hasattr(self, "path_waypoints_visualizer"):
+                self.path_waypoints_visualizer.set_visibility(False)
+                self.goal_visualizer.set_visibility(False)
+                self.start_visualizer.set_visibility(False)
+
+    def _debug_vis_callback(self, event):
+        self.path_waypoints_visualizer.visualize(
+            translations=self.pos_path_w.reshape(-1, 3),
+        )
+        self.goal_visualizer.visualize(
+            translations=self.pos_path_w[torch.arange(self.num_envs), -1],
+        )
+        self.start_visualizer.visualize(
+            translations=self.pos_path_w[torch.arange(self.num_envs), 0],
+        )
 
     # ----------------- waypoint progression + metrics -----------------
     def _advance_waypoint_index(self):

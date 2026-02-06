@@ -44,6 +44,7 @@ class ClimbPathCommand(SegmentPathCommand):
 
         dist_at_wp = alpha.squeeze(-1) * total_len[:, None]
         inside = (dist_at_wp >= climb_s0[:, None]) & (dist_at_wp <= climb_s1[:, None])
+        after = dist_at_wp > climb_s1[:, None]
         t = ((dist_at_wp - climb_s0[:, None]) / (climb_s1[:, None] - climb_s0[:, None]).clamp(min=1e-3)).clamp(0.0, 1.0)
 
         # Step-like rise: climb most of the height early, then keep a top plateau.
@@ -52,7 +53,8 @@ class ClimbPathCommand(SegmentPathCommand):
         smooth = 3.0 * t_rise * t_rise - 2.0 * t_rise * t_rise * t_rise
         z_rise = float(cp.climb_height) * smooth
         z_off = torch.where(t <= rise_ratio, z_rise, torch.full_like(z_rise, float(cp.climb_height)))
-        pos[..., 2] = pos[..., 2] + torch.where(inside, z_off, torch.zeros_like(z_off))
+        z_plateau = torch.full_like(z_off, float(cp.climb_height))
+        pos[..., 2] = pos[..., 2] + torch.where(inside, z_off, torch.where(after, z_plateau, torch.zeros_like(z_off)))
 
         yaw_wp = self._planned_yaw[env_ids][:, None].repeat(1, self.num_waypoints)
         self.pos_path_w[env_ids] = pos

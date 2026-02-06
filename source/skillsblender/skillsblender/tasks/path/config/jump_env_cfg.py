@@ -60,15 +60,15 @@ JUMP_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
         
         # 2. 窄沟壑
         "narrow_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.65,
-            gap_width_range=(0.3, 0.5),               
-            platform_width=2.0,           
+            proportion=0.60,
+            gap_width_range=(0.5, 0.7),
+            platform_width=2.0,
         ),
         
         # 3. 宽沟壑：用于进阶跳跃训练 (占比 40%)
         "wide_gaps": terrain_gen.MeshGapTerrainCfg(
-            proportion=0.4,
-            gap_width_range=(0.6, 1.0),  # 沟壑宽度 0.6m - 1.0m (挑战 Go2 极限)
+            proportion=0.40,
+            gap_width_range=(0.8, 1.2),
             platform_width=2.5,
         ),
     },
@@ -713,6 +713,7 @@ class JumpPathEnvCfg(PathEnvCfg):
         self.sim.render_interval = 2
         self.sim.physics_material = self.scene.terrain.physics_material
         self.viewer.asset_name = "robot"
+        # Keep default camera origin for jump (override in play if needed).
         self.viewer.origin_type = "asset"
         self.viewer.eye = (3.0, 3.0, 3.0)
         self.viewer.lookat = (0.0, 0.0, 0.0)
