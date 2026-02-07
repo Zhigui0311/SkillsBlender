@@ -26,9 +26,11 @@ class CrouchPathCommand(SegmentPathCommand):
         self._set_planned_frame_from_robot(env_ids)
 
         cp = self.cfg.crouch_params
-        total_len = torch.full((len(env_ids),), float(self.cfg.ranges.default_path_len), device=self.device)
-
+        # sample a goal distance within env bounds
         s_min, s_max = cp.start_dist_range
+        min_len = float(s_max + cp.crouch_len + 0.2)
+        total_len = self._sample_path_length(env_ids, self._planned_start_pos[env_ids], self._planned_yaw[env_ids], min_len=min_len)
+
         crouch_s0 = torch.empty(len(env_ids), device=self.device).uniform_(s_min, s_max)
         crouch_s1 = (crouch_s0 + float(cp.crouch_len)).clamp(max=total_len - 1e-3)
 
@@ -42,7 +44,9 @@ class CrouchPathCommand(SegmentPathCommand):
         alpha = self.t_alpha.view(1, -1, 1)
         pos = start[:, None, :] + (end[:, None, :] - start[:, None, :]) * alpha
 
-        yaw_wp = self._planned_yaw[env_ids][:, None].repeat(1, self.num_waypoints)
+        yaw0 = self._planned_yaw[env_ids]
+        # Keep yaw fixed for non-walk skills.
+        yaw_wp = self._build_fixed_yaw_traj(yaw0)
         self.pos_path_w[env_ids] = pos
         self.heading_path_w[env_ids, :, 0] = yaw_wp
 

@@ -129,6 +129,7 @@ class Go2RealParkourEnvCfg(PathEnvCfg):
             "stairs_up",
             "stairs_down",
             "climb",
+            "platform",
         ]
 
         # Termination thresholds (survival)

@@ -146,6 +146,43 @@ gym.register(
     },
 )
 
+# ---------------------- Platform ----------------------
+gym.register(
+    id="go2-path-platform-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_platform_cfg:Go2PlatformEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2PlatformPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-platform-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_platform_cfg:Go2PlatformEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2PlatformPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-platform-v1",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_platform_cfg:Go2PlatformCurEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2PlatformPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-path-platform-v1-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_platform_cfg:Go2PlatformCurEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2PlatformPPOCfg",
+    },
+)
+
 # ---------------------- Climb ----------------------
 gym.register(
     id="go2-path-climb-v0",
@@ -161,24 +198,6 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     kwargs={
         "env_cfg_entry_point": f"{__name__}.terrain.go2_climb_cfg:Go2ClimbEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ClimbPPOCfg",
-    },
-)
-
-gym.register(
-    id="go2-path-climb-v1",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.terrain.go2_climb_cfg:Go2ClimbCurEnvCfg",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ClimbPPOCfg",
-    },
-)
-
-gym.register(
-    id="go2-path-climb-v1-play",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.terrain.go2_climb_cfg:Go2ClimbCurEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ClimbPPOCfg",
     },
 )
@@ -291,50 +310,5 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.virtual.go2_vcrouch_cfg:Go2VCrouchEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2VirtualCrouchPPOCfg",
-    },
-)
-
-gym.register(
-    id="go2-path-virtual-climb-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.virtual.go2_vclimb_cfg:Go2VClimbEnvCfg",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2VirtualClimbPPOCfg",
-    },
-)
-
-gym.register(
-    id="go2-path-virtual-climb-v0-play",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.virtual.go2_vclimb_cfg:Go2VClimbEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2VirtualClimbPPOCfg",
-    },
-)
-
-gym.register(
-    id="go2-path-virtual-stairs-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.virtual.go2_vstairs_cfg:Go2VStairsEnvCfg",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2VirtualStairsPPOCfg",
-    },
-)
-
-gym.register(
-    id="go2-path-virtual-stairs-down-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.virtual.go2_vstairs_cfg:Go2VStairsDownEnvCfg",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2VirtualStairsPPOCfg",
-    },
-)
-
-gym.register(
-    id="go2-path-virtual-stairs-v0-play",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.virtual.go2_vstairs_cfg:Go2VStairsEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2VirtualStairsPPOCfg",
     },
 )

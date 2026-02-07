@@ -17,6 +17,7 @@ from .terrain import (
     SKILL_TAG_WALK,
     SKILL_TAG_JUMP,
     SKILL_TAG_STAIRS,
+    SKILL_TAG_PLATFORM,
     SKILL_TAG_CLIMB,
     SKILL_TAG_CROUCH,
     subterrain_name_to_skill_tag,
@@ -68,7 +69,7 @@ def get_skill_tag_from_terrain(env, env_ids: torch.Tensor) -> torch.Tensor:
     """
     返回 per-env 的 skill_tag_id（int），用于固定宽度 buffer。
     词表：
-      0 walk, 1 jump, 2 stairs, 3 climb, 4 crouch
+      0 walk, 1 jump, 2 stairs, 3 platform, 4 crouch, 5 climb
     """
     device = env_ids.device
     tag_int = torch.zeros(len(env_ids), dtype=torch.long, device=device)  # 默认 walk
@@ -94,8 +95,10 @@ def get_skill_tag_from_terrain(env, env_ids: torch.Tensor) -> torch.Tensor:
             tag_int[i] = 1
         elif tag == SKILL_TAG_STAIRS:
             tag_int[i] = 2
-        elif tag == SKILL_TAG_CLIMB:
+        elif tag == SKILL_TAG_PLATFORM:
             tag_int[i] = 3
+        elif tag == SKILL_TAG_CLIMB:
+            tag_int[i] = 5
         elif tag == SKILL_TAG_CROUCH:
             tag_int[i] = 4
         else:
@@ -113,12 +116,14 @@ def default_segment_plan_for_tag(tag_int: torch.Tensor) -> list[list[SkillSegmen
     for t in tag_int.tolist():
         if t == 2:  # stairs
             plans.append([SkillSegmentPlan(SKILL_TAG_STAIRS, 1.0, 3.0)])
-        elif t == 3:  # climb
-            plans.append([SkillSegmentPlan(SKILL_TAG_CLIMB, 1.0, 3.0)])
+        elif t == 3:  # platform
+            plans.append([SkillSegmentPlan(SKILL_TAG_PLATFORM, 1.0, 3.0)])
         elif t == 4:  # crouch（通常需要额外 props；这里只给一个窗口）
             plans.append([SkillSegmentPlan(SKILL_TAG_CROUCH, 1.0, 3.0)])
         elif t == 1:  # jump（真实 jump 更建议用 height_scanner 检 gap）
             plans.append([SkillSegmentPlan(SKILL_TAG_JUMP, 1.2, 2.2)])
+        elif t == 5:  # climb
+            plans.append([SkillSegmentPlan(SKILL_TAG_CLIMB, 1.0, 3.0)])
         else:
             plans.append([])
     return plans

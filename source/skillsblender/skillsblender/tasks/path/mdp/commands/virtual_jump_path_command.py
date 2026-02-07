@@ -34,6 +34,12 @@ class VirtualJumpPathCommandCfg(PathCommandCfg):
     # none/parabola_up/parabola_down/flat_down/ramp_up/stairs/stairs_up/stairs_down
     profile_type: str = "auto"
     stairs_steps_range: Tuple[int, int] = (3, 6)
+    # Trajectory generation (curved paths removed)
+    trajectory_mode: str = "line"  # no-op (always line)
+    yaw_mode: str = "fixed"  # "fixed" or "interp"
+    # Yaw range in degrees relative to start heading (used when yaw_mode="interp").
+    yaw_range: Tuple[float, float] = (-45.0, 45.0)
+    lateral_range: Tuple[float, float] = (-0.6, 0.6)  # no-op
 
     def __post_init__(self):
         # Backward-compat: use jump_prob if virtual_prob is not explicitly set.
@@ -120,8 +126,10 @@ class VirtualJumpPathCommand(SegmentPathCommand):
             return "parabola_up"
         if s == "crouch":
             return "flat_down"
-        if s == "climb":
+        if s == "platform":
             return "ramp_up"
+        if s == "climb":
+            return "none"
         if s == "stairs":
             return "stairs"
         if s == "stairs_up":
@@ -135,18 +143,28 @@ class VirtualJumpPathCommand(SegmentPathCommand):
         env_ids: torch.Tensor,
         total_len: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Generate a flat base trajectory before virtual jump injection."""
+        """Generate a base trajectory (straight line) before virtual profile injection."""
         n = len(env_ids)
         if total_len is None:
             total_len = self._sample_path_length(n)
         start = self._planned_start_pos[env_ids].clone()
+        yaw0 = self._planned_yaw[env_ids]
         fwd = self._planned_forward_dir[env_ids]
         end = start.clone()
-        end[:, :2] = end[:, :2] + fwd * total_len[:, None]
-
+        end[:, :2] = start[:, :2] + fwd * total_len[:, None]
         alpha = self.t_alpha.view(1, -1, 1)
         pos_traj = start[:, None, :] + (end[:, None, :] - start[:, None, :]) * alpha
-        yaw_traj = self._planned_yaw[env_ids][:, None].repeat(1, self.num_waypoints)
+        # Keep yaw fixed for virtual non-walk skills.
+        if str(getattr(self.cfg, "skill_name", "jump")) == "walk":
+            sampling = getattr(self.cfg, "sampling", None)
+            sampling_mode = str(getattr(sampling, "yaw_mode", "fixed")).lower()
+            if sampling_mode in ("interp", "linear", "lerp"):
+                yaw_goal = self._sample_goal_yaw(yaw0)
+                yaw_traj = self._build_yaw_traj(yaw0, yaw_goal)
+            else:
+                yaw_traj = yaw0[:, None].repeat(1, self.num_waypoints)
+        else:
+            yaw_traj = yaw0[:, None].repeat(1, self.num_waypoints)
         return pos_traj, yaw_traj, total_len
 
     def _apply_profile(
@@ -326,8 +344,13 @@ class VirtualJumpPathCommand(SegmentPathCommand):
                 self._set_seg_param(jump_params, "clearance_ref", 0.16)
                 self._set_seg_param(jump_params, "step_height_ref", self._jump_height[env_t])
                 self._set_seg_param(jump_params, "misc", self._stairs_steps[env_t].to(torch.float32))
-            if self.cfg.skill_name == "climb":
+            if self.cfg.skill_name == "platform":
                 self._set_seg_param(jump_params, "clearance_ref", 0.2)
+                slope = torch.zeros(len(env_t), device=self.device)
+                if hasattr(self, "pitch_target"):
+                    slope = self.pitch_target[env_t]
+                self._set_seg_param(jump_params, "slope_angle_ref", slope)
+            if self.cfg.skill_name == "climb":
                 slope = torch.zeros(len(env_t), device=self.device)
                 if hasattr(self, "pitch_target"):
                     slope = self.pitch_target[env_t]

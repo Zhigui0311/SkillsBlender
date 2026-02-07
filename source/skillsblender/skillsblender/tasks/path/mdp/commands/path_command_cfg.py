@@ -5,7 +5,13 @@ from dataclasses import MISSING, field
 from isaaclab.managers import CommandTermCfg
 from isaaclab.utils import configclass
 from isaaclab.markers import VisualizationMarkersCfg
-from skillsblender.tasks.path.config import WAYPOINTS_MARKER_CFG, START_SPHERE_MARKER_CFG, GOAL_SPHERE_MARKER_CFG
+from skillsblender.tasks.path.config import (
+    WAYPOINTS_MARKER_CFG,
+    START_SPHERE_MARKER_CFG,
+    GOAL_SPHERE_MARKER_CFG,
+    PATH_HEADING_MARKER_CFG,
+    ROBOT_HEADING_MARKER_CFG,
+)
 
 
 _DEFAULT_SKILL_PARAM_ALIASES: dict[str, str] = {
@@ -122,10 +128,18 @@ class CrouchParams:
     start_dist_range: Tuple[float, float] = (1.0, 2.0)
 
 @configclass
-class ClimbParams:
-    # planned climb geometry: continuous ramp-like height gain
+class PlatformParams:
+    # planned platform climb geometry: step up to a high ledge
     climb_len: float = 2.0
     climb_height: float = 0.5
+    start_dist_range: Tuple[float, float] = (1.0, 2.0)
+
+
+@configclass
+class ClimbParams:
+    # planned climb (slope/ramp) traversal parameters
+    climb_len: float = 2.0
+    max_slope_deg: float = 30.0
     start_dist_range: Tuple[float, float] = (1.0, 2.0)
 
 @configclass
@@ -162,6 +176,8 @@ class PathSamplingCfg:
     yaw_type: str = "along_path"
     start_heading: Tuple[float, float] = (0.0, 0.0)
     end_heading: Tuple[float, float] = (0.0, 0.0)
+    # yaw_mode: "fixed" keeps yaw constant; "interp" linearly interpolates to end_heading.
+    yaw_mode: str = "fixed"
     sample_goal_distance: bool = False
 
 @configclass
@@ -179,6 +195,7 @@ class PathGeneratorCfg:
     walk_params: WalkParams = field(default_factory=WalkParams)
     jump_params: JumpParams = field(default_factory=JumpParams)
     stairs_params: StairsParams = field(default_factory=StairsParams)
+    platform_params: PlatformParams = field(default_factory=PlatformParams)
     climb_params: ClimbParams = field(default_factory=ClimbParams)
     crouch_params: CrouchParams = field(default_factory=CrouchParams)
 
@@ -207,7 +224,7 @@ class PathRanges:
 
     # segment-table sizing
     max_segments: int = 8
-    num_skills: int = 7  # keep in sync with PathCommand skill ids
+    num_skills: int = 8  # keep in sync with PathCommand skill ids
 
     # segment param vector (shared across skills)
     # Set to 0 to disable per-segment param table (smaller command/meta and slightly faster updates).
@@ -231,6 +248,7 @@ class PathCommandCfg(CommandTermCfg):
     jump_params: JumpParams = JumpParams()
     stairs_params: StairsParams = StairsParams()
     crouch_params: CrouchParams = CrouchParams()
+    platform_params: PlatformParams = PlatformParams()
     climb_params: ClimbParams = ClimbParams()
     
     path_waypoints_visualizer_cfg: VisualizationMarkersCfg = WAYPOINTS_MARKER_CFG.replace(
@@ -251,6 +269,16 @@ class PathCommandCfg(CommandTermCfg):
     """The configuration for the path goal visualization marker. Defaults to GOAL_SPHERE_MARKER_CFG.
     """
 
+    path_heading_visualizer_cfg: VisualizationMarkersCfg = PATH_HEADING_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/path_heading"
+    )
+    """The configuration for desired heading visualization markers (arrows)."""
+
+    robot_heading_visualizer_cfg: VisualizationMarkersCfg = ROBOT_HEADING_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/robot_heading"
+    )
+    """The configuration for robot heading visualization markers (arrows)."""
+
     def __post_init__(self):
         if getattr(self, "class_type", None) in (None, MISSING):
             # local import avoids circular dependency
@@ -264,7 +292,6 @@ class PathCommandCfg(CommandTermCfg):
         parent_post_init = getattr(super(), "__post_init__", None)
         if callable(parent_post_init):
             parent_post_init()
-
 
 @configclass
 class JumpPathCommandCfg(PathCommandCfg):
@@ -282,6 +309,15 @@ class StairsPathCommandCfg(PathCommandCfg):
         from .stairs_path_command import StairsPathCommand
 
         self.class_type = StairsPathCommand
+
+
+@configclass
+class PlatformPathCommandCfg(PathCommandCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        from .platform_path_command import PlatformPathCommand
+
+        self.class_type = PlatformPathCommand
 
 
 @configclass
@@ -309,6 +345,7 @@ PathCommandCfg.PathGeneratorCfg = PathGeneratorCfg
 PathCommandCfg.WalkParams = WalkParams
 PathCommandCfg.JumpParams = JumpParams
 PathCommandCfg.StairsParams = StairsParams
+PathCommandCfg.PlatformParams = PlatformParams
 PathCommandCfg.ClimbParams = ClimbParams
 PathCommandCfg.CrouchParams = CrouchParams
 

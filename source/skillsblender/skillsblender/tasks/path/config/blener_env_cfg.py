@@ -125,7 +125,7 @@ class BlenerPathEnvCfg(PathEnvCfg):
     """Multi-skill blender training environment configuration.
 
     This environment trains the robot to handle multiple skills in sequence,
-    such as walk -> jump -> stairs -> climb.
+    such as walk -> jump -> stairs -> climb -> platform.
     """
 
     def __post_init__(self):
@@ -145,6 +145,7 @@ class BlenerPathEnvCfg(PathEnvCfg):
             "jump",
             "stairs_up",
             "climb",
+            "platform",
             "crouch",
         ]
         self.commands.path_tracking.crouch_params.base_height_ref = 0.24

@@ -21,19 +21,8 @@ from skillsblender.tasks.path.mdp.commands.virtual_crouch_path_command import (
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
-
-def track_path_pos_z_exp(
-    env: ManagerBasedRLEnv,
-    std: float = 0.10,
-    command_name: str = "path_tracking",
-) -> torch.Tensor:
-    command = env.command_manager.get_term(command_name)
-    err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
-    return torch.exp(-torch.square(err) / (std**2))
-
-
 @configclass
-class VirtualRewards(RewardsCfg):
+class VirtualCrouchRewards(RewardsCfg):
     """Reward shaping for virtual crouch: strong tracking, minimal penalties."""
 
     is_terminated = RewTerm(func=mdp.is_terminated, weight=-200.0)
@@ -54,7 +43,7 @@ class VirtualRewards(RewardsCfg):
         params={"std": 0.6, "command_name": "path_tracking", "desired_speed": 0.8},
     )
     track_z = RewTerm(
-        func=track_path_pos_z_exp,
+        func=mdp.track_path_pos_z_exp,
         weight=12.0,
         params={"std": 0.10, "command_name": "path_tracking"},
     )
@@ -135,7 +124,7 @@ class VirtualCrouchCurriculumCfg:
 class Go2VirtualCrouchEnvCfg(PathEnvCfg):
     """Virtual crouch training on flat terrain only."""
     curriculum: VirtualCrouchCurriculumCfg = VirtualCrouchCurriculumCfg()
-    rewards: VirtualRewards = VirtualRewards()
+    rewards: VirtuaCrouchlRewards = VirtualCrouchRewards()
 
     def __post_init__(self):
         super().__post_init__()

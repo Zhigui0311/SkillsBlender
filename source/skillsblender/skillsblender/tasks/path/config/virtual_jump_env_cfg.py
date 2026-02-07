@@ -21,20 +21,8 @@ from skillsblender.tasks.path.mdp.commands.virtual_jump_path_command import (
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
-
-def track_path_pos_z_exp(
-    env: ManagerBasedRLEnv,
-    std: float = 0.10,
-    command_name: str = "path_tracking",
-) -> torch.Tensor:
-    """Track virtual Z target from command waypoints with an exponential kernel."""
-    command = env.command_manager.get_term(command_name)
-    err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
-    return torch.exp(-torch.square(err) / (std**2))
-
-
 @configclass
-class VirtualRewards(RewardsCfg):
+class VirtualJumpRewards(RewardsCfg):
     """Reward shaping for virtual training: strong tracking, minimal penalties."""
 
     # Survival is still penalized to avoid trivial falling.
@@ -58,7 +46,7 @@ class VirtualRewards(RewardsCfg):
     )
     # Virtual Z tracking (hallucinated path).
     track_z = RewTerm(
-        func=track_path_pos_z_exp,
+        func=mdp.track_path_pos_z_exp,
         weight=12.0,
         params={"std": 0.10, "command_name": "path_tracking"},
     )
@@ -144,7 +132,7 @@ class Go2VirtualJumpEnvCfg(PathEnvCfg):
     the jump profile exists in command path slices, not in real terrain geometry.
     """
     curriculum: VirtualJumpCurriculumCfg = VirtualJumpCurriculumCfg()
-    rewards: VirtualRewards = VirtualRewards()
+    rewards: VirtualJumpRewards = VirtualJumpRewards()
 
     def __post_init__(self):
         super().__post_init__()
@@ -173,6 +161,7 @@ class Go2VirtualJumpEnvCfg(PathEnvCfg):
                 end_heading=(0.0, 0.0),
                 sample_goal_distance=True,
             ),
+            yaw_mode="interp",
             virtual_prob=0.50,
             jump_height_range=(0.3, 0.5),
             gap_width_range=(0.8, 1.2),

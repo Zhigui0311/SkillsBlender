@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import isaaclab.terrains as terrain_gen
+from isaaclab.sensors import RayCasterCfg, patterns
 from isaaclab.utils import configclass
 
 from skillsblender.tasks.path.config.path_env_cfg import PathEnvCfg, MySceneCfg
@@ -52,6 +53,15 @@ STAIRS_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
 class MyStairsSceneCfg(MySceneCfg):
     """Stairs scene configuration with pyramid stairs terrain."""
 
+    height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/base",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[6.0, 1.0]),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
+
     def __post_init__(self):
         super().__post_init__()
         # Update terrain for stairs task
@@ -71,10 +81,11 @@ class StairsPathEnvCfg(PathEnvCfg):
 
         # Use stairs scene
         self.scene: MyStairsSceneCfg = MyStairsSceneCfg(num_envs=4096, env_spacing=2.5)
-        self.commands.path_tracking.class_type = mdp.commands.StairsPathCommand
         self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "stairs_up", "stairs_down", "walk"]
         self.commands.path_tracking.sampling.yaw_type = "fixed"
         self.commands.path_tracking.sampling.start_heading = (0.0, 0.0)
+        self.commands.path_tracking.sampling.end_to_start_pos = (4.0, 6.0, 0.0)
+        self.commands.path_tracking.sampling.sample_goal_distance = True
 
         # Stairs-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 80

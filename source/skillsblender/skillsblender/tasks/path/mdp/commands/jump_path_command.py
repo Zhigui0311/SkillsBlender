@@ -68,6 +68,13 @@ class JumpPathCommand(SegmentPathCommand):
         self._planned_forward_dir[env_ids] = fwd
         self._planned_left_dir[env_ids] = left
 
+        # sample a goal distance within env bounds (path end is inside bounds)
+        start_pos = self._planned_start_pos[env_ids].clone()
+        min_len = float(jp.min_jump_start_dist + jp.min_gap_width + jp.min_landing_runout + jp.endpoint_extension_min)
+        total_len = self._sample_path_length(env_ids, start_pos, yaw, min_len=min_len)
+        env_bounds = self._build_env_bounds(start_pos)
+        max_len = self._compute_max_path_length(start_pos, yaw, env_bounds)
+
         # detect gap (distance along forward)
         gap_s0 = torch.zeros(len(env_ids), device=self.device)
         gap_s1 = torch.zeros(len(env_ids), device=self.device)
@@ -119,12 +126,11 @@ class JumpPathCommand(SegmentPathCommand):
         # This keeps jump-skill training from degenerating into pure straight walking.
         missing = ~has_gap
         if torch.any(missing):
-            default_len = torch.full((len(env_ids),), float(self.cfg.ranges.default_path_len), device=self.device)
-            mid = float(jp.fallback_gap_center_ratio) * default_len[missing]
-            gap_w = torch.clamp(0.18 * default_len[missing], min=jp.min_gap_width, max=jp.max_gap_width)
+            mid = float(jp.fallback_gap_center_ratio) * total_len[missing]
+            gap_w = torch.clamp(0.18 * total_len[missing], min=jp.min_gap_width, max=jp.max_gap_width)
             s0 = torch.clamp(mid - 0.5 * gap_w, min=jp.min_gap_start_dist)
             s1 = s0 + gap_w
-            max_gap_end = default_len[missing] - max(float(jp.min_landing_runout), 0.6)
+            max_gap_end = total_len[missing] - max(float(jp.min_landing_runout), 0.6)
             s1 = torch.minimum(s1, max_gap_end)
             s0 = torch.minimum(s0, s1 - jp.min_gap_width)
             gap_s0[missing] = s0
@@ -137,7 +143,7 @@ class JumpPathCommand(SegmentPathCommand):
             hw = (gap_s1[has_gap] - hs0).clamp(min=jp.min_gap_width, max=jp.max_gap_width)
             hs0 = torch.clamp(hs0, min=jp.min_gap_start_dist)
             hs1 = hs0 + hw
-            max_gap_end = torch.full_like(hs1, float(self.cfg.ranges.default_path_len) - max(float(jp.min_landing_runout), 0.6))
+            max_gap_end = total_len[has_gap] - max(float(jp.min_landing_runout), 0.6)
             hs1 = torch.minimum(hs1, max_gap_end)
             hs0 = torch.minimum(hs0, hs1 - jp.min_gap_width)
             gap_s0[has_gap] = hs0
@@ -171,14 +177,16 @@ class JumpPathCommand(SegmentPathCommand):
         jump_s0 = torch.where(has_gap, torch.maximum(gap_s0 - takeoff, torch.full_like(gap_s0, float(jp.min_jump_start_dist))), gap_s0)
         jump_s1 = torch.where(has_gap, gap_s1 + landing, gap_s1)
 
-        # total path length
-        total_len = torch.where(
-            has_gap & (jump_s1 > 0.0),
-            torch.maximum(jump_s1 + extension, jump_s1 + float(jp.min_landing_runout)),
-            torch.full_like(jump_s1, float(self.cfg.ranges.default_path_len)),
-        )
+        # ensure enough landing runout, but keep the goal inside env bounds
+        desired_len = torch.maximum(jump_s1 + extension, jump_s1 + float(jp.min_landing_runout))
         if self.cfg.jump_params.post_jump_distance > 0:
-            total_len = torch.where(has_gap & (jump_s1 > 0.0), total_len + self.cfg.jump_params.post_jump_distance, total_len)
+            desired_len = desired_len + float(self.cfg.jump_params.post_jump_distance)
+        total_len = torch.maximum(total_len, desired_len)
+        total_len = torch.minimum(total_len, max_len)
+        # re-clamp jump window if the path got shortened
+        jump_s1 = torch.minimum(jump_s1, total_len - 1e-3)
+        jump_s0 = torch.minimum(jump_s0, jump_s1 - jp.min_gap_width)
+        jump_s0 = torch.maximum(jump_s0, torch.full_like(jump_s0, float(jp.min_jump_start_dist)))
 
         self._path_len[env_ids] = total_len
 
@@ -200,8 +208,10 @@ class JumpPathCommand(SegmentPathCommand):
         mask = (dist_at_wp >= jump_s0[:, None]) & (dist_at_wp <= jump_s1[:, None]) & has_gap[:, None]
         pos[..., 2] = pos[..., 2] + torch.where(mask, arc, torch.zeros_like(arc))
 
-        # yaw along path: keep planned yaw constant here (can be upgraded to curvature)
-        yaw_wp = self._planned_yaw[env_ids][:, None].repeat(1, self.num_waypoints)
+        # yaw along path: fixed or interpolated based on sampling.yaw_mode
+        yaw0 = self._planned_yaw[env_ids]
+        # Keep yaw fixed for non-walk skills.
+        yaw_wp = self._build_fixed_yaw_traj(yaw0)
 
         self.pos_path_w[env_ids] = pos
         self.heading_path_w[env_ids, :, 0] = yaw_wp

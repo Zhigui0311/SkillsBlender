@@ -77,6 +77,7 @@ class Go2BlenerEnvCfg(BlenerPathEnvCfg):
             "jump",
             "stairs_up",
             "climb",
+            "platform",
             "crouch",
         ]
 

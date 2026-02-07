@@ -700,6 +700,8 @@ class JumpPathEnvCfg(PathEnvCfg):
         self.commands.path_tracking.path_generator_cfg.skill_sequence = ["walk", "jump", "walk"]
         self.commands.path_tracking.sampling.yaw_type = "fixed"
         self.commands.path_tracking.sampling.start_heading = (0.0, 0.0)
+        self.commands.path_tracking.sampling.end_to_start_pos = (3.5, 6.0, 0.0)
+        self.commands.path_tracking.sampling.sample_goal_distance = True
 
         # Keep starts aligned with forward gap direction for reliable scanner detection.
         self.events.reset_base.params["pose_range"]["x"] = (-0.2, 0.2)

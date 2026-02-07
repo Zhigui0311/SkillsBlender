@@ -202,7 +202,7 @@ def curriculum_stairs_difficulty(
     return {"step_height": new_h, "stairs_len": new_len}
 
 
-def curriculum_climb_difficulty(
+def curriculum_platform_difficulty(
     env: ManagerBasedRLEnv,
     env_ids: Sequence[int] | torch.Tensor | None,
     command_name: str,
@@ -213,14 +213,19 @@ def curriculum_climb_difficulty(
     initial_climb_len: float = 1.30,
     final_climb_len: float = 0.90,
     climb_len_step: float = 0.03,
+    pit_slope_min_final: float | None = None,
+    pit_slope_max_final: float | None = None,
+    pit_slope_step: float = 0.05,
+    pit_size: float = 8.0,
+    pit_platform_width: float = 2.0,
+    pit_border_width: float = 0.5,
+    platform_top_height: float | None = None,
     step_asset_name: str = "climb_step",
     top_asset_name: str = "climb_top",
     step_half_height: float = 0.28,
     top_half_thickness: float = 0.05,
 ) -> dict[str, float] | None:
-    """
-    Increase climb difficulty by raising ledge height and shortening climb length (steeper).
-    """
+    """Increase platform difficulty by raising ledge height, shortening climb length, and steepening pit walls."""
     mean_reward = _mean_episode_reward(env, env_ids)
     if mean_reward is None:
         return None
@@ -229,56 +234,91 @@ def curriculum_climb_difficulty(
         command = env.command_manager.get_term(command_name)
     except Exception:
         return None
-    if not hasattr(command.cfg, "climb_params"):
+    if not hasattr(command.cfg, "platform_params"):
         return None
 
-    climb_cfg = command.cfg.climb_params
-    cur_h = float(getattr(climb_cfg, "climb_height", initial_climb_height))
-    cur_len = float(getattr(climb_cfg, "climb_len", initial_climb_len))
-    cur_h = max(cur_h, initial_climb_height)
-    cur_len = max(cur_len, final_climb_len)
+    platform_cfg = command.cfg.platform_params
 
-    new_h = cur_h
+    # Track platform-top height separately from total height (pit depth + top height).
+    if not hasattr(env, "_platform_top_height"):
+        base_top = float(platform_top_height) if platform_top_height is not None else float(
+            getattr(platform_cfg, "climb_height", initial_climb_height)
+        )
+        env._platform_top_height = base_top
+    if not hasattr(env, "_platform_climb_len"):
+        env._platform_climb_len = float(getattr(platform_cfg, "climb_len", initial_climb_len))
+
+    cur_top = max(float(env._platform_top_height), initial_climb_height)
+    cur_len = max(float(env._platform_climb_len), final_climb_len)
+
+    new_top = cur_top
     new_len = cur_len
     if mean_reward > reward_threshold:
-        new_h = min(final_climb_height, cur_h + climb_height_step)
+        new_top = min(final_climb_height, cur_top + climb_height_step)
         new_len = max(final_climb_len, cur_len - climb_len_step)
-        if abs(new_h - cur_h) > 1e-6:
-            climb_cfg.climb_height = new_h
-        if abs(new_len - cur_len) > 1e-6:
-            climb_cfg.climb_len = new_len
+        env._platform_top_height = new_top
+        env._platform_climb_len = new_len
 
-        # Sync scene ledge/platform heights when those assets exist.
-        if abs(new_h - cur_h) > 1e-6:
-            try:
-                step_asset = env.scene[step_asset_name]
-            except Exception:
-                step_asset = None
-            if step_asset is not None:
-                step_pos = step_asset.data.root_pos_w.clone()
-                step_pos[:, 2] = new_h - step_half_height
-                step_quat = step_asset.data.root_quat_w.clone()
-                step_pose = torch.cat([step_pos, step_quat], dim=-1)
-                step_asset.write_root_pose_to_sim(step_pose, env_ids=env_ids)
+    # Optional: pit wall steepness curriculum (global).
+    pit_depth = 0.0
+    pit_updated = False
+    if pit_slope_min_final is not None and pit_slope_max_final is not None:
+        terrain = getattr(env.scene, "terrain", None)
+        gen_cfg = getattr(getattr(terrain, "cfg", None), "terrain_generator", None)
+        pit_cfg = getattr(gen_cfg, "sub_terrains", {}).get("pit", None) if gen_cfg else None
+        if pit_cfg is not None and hasattr(pit_cfg, "slope_range"):
+            cur_min, cur_max = pit_cfg.slope_range
+            if mean_reward > reward_threshold:
+                new_min = min(float(cur_min) + pit_slope_step, float(pit_slope_min_final))
+                new_max = min(float(cur_max) + pit_slope_step, float(pit_slope_max_final))
+                if new_min != float(cur_min) or new_max != float(cur_max):
+                    pit_cfg.slope_range = (new_min, new_max)
+                    pit_updated = True
 
-            try:
-                top_asset = env.scene[top_asset_name]
-            except Exception:
-                top_asset = None
-            if top_asset is not None:
-                top_pos = top_asset.data.root_pos_w.clone()
-                top_pos[:, 2] = new_h + top_half_thickness
-                top_quat = top_asset.data.root_quat_w.clone()
-                top_pose = torch.cat([top_pos, top_quat], dim=-1)
-                top_asset.write_root_pose_to_sim(top_pose, env_ids=env_ids)
+            # Estimate pit depth from current slope range.
+            use_min, use_max = pit_cfg.slope_range
+            run = max(1e-3, (pit_size * 0.5) - (pit_platform_width * 0.5) - pit_border_width)
+            pit_depth = 0.5 * (float(use_min) + float(use_max)) * run
 
-        if abs(new_h - cur_h) > 1e-6 or abs(new_len - cur_len) > 1e-6:
-            print(
-                "[Climb Curriculum] climb_height/climb_len updated: "
-                f"{new_h:.3f}m / {new_len:.2f}m"
-            )
+    # Total climb height from pit bottom to platform top.
+    top_height = float(new_top)
+    total_height = top_height + pit_depth
 
-    return {"climb_height": new_h, "climb_len": new_len}
+    # Sync command parameters.
+    platform_cfg.climb_height = total_height
+    platform_cfg.climb_len = new_len
+
+    # Sync scene ledge/platform heights when those assets exist (relative to rim).
+    if abs(new_top - cur_top) > 1e-6:
+        try:
+            step_asset = env.scene[step_asset_name]
+        except Exception:
+            step_asset = None
+        if step_asset is not None:
+            step_pos = step_asset.data.root_pos_w.clone()
+            step_pos[:, 2] = top_height - step_half_height
+            step_quat = step_asset.data.root_quat_w.clone()
+            step_pose = torch.cat([step_pos, step_quat], dim=-1)
+            step_asset.write_root_pose_to_sim(step_pose, env_ids=env_ids)
+
+        try:
+            top_asset = env.scene[top_asset_name]
+        except Exception:
+            top_asset = None
+        if top_asset is not None:
+            top_pos = top_asset.data.root_pos_w.clone()
+            top_pos[:, 2] = top_height + top_half_thickness
+            top_quat = top_asset.data.root_quat_w.clone()
+            top_pose = torch.cat([top_pos, top_quat], dim=-1)
+            top_asset.write_root_pose_to_sim(top_pose, env_ids=env_ids)
+
+    if mean_reward > reward_threshold and (abs(new_top - cur_top) > 1e-6 or abs(new_len - cur_len) > 1e-6 or pit_updated):
+        print(
+            "[Platform Curriculum] top_height/climb_len updated: "
+            f"{new_top:.3f}m / {new_len:.2f}m (pit_depth={pit_depth:.2f}m)"
+        )
+
+    return {"platform_top_height": new_top, "climb_len": new_len, "pit_depth": pit_depth}
 
 
 def curriculum_velocity_requirement(
@@ -385,41 +425,6 @@ def curriculum_virtual_skill_difficulty(
             )
 
     return {"jump_prob": new_prob, "height_hi": new_h_hi, "length_hi": new_l_hi}
-
-
-def curriculum_virtual_stairs_steps(
-    env: ManagerBasedRLEnv,
-    env_ids: Sequence[int] | torch.Tensor | None,
-    command_name: str,
-    reward_threshold: float,
-    step_increase: int = 1,
-    max_steps: int = 10,
-) -> dict[str, float] | None:
-    """Curriculum for virtual stairs by increasing number of steps."""
-    mean_reward = _mean_episode_reward(env, env_ids)
-    if mean_reward is None:
-        return None
-
-    try:
-        command = env.command_manager.get_term(command_name)
-        cfg = command.cfg
-    except Exception:
-        return None
-
-    if not hasattr(cfg, "stairs_steps_range"):
-        return None
-
-    lo, hi = tuple(getattr(cfg, "stairs_steps_range"))
-    new_hi = int(hi)
-    if mean_reward > reward_threshold:
-        new_hi = min(int(max_steps), int(hi) + int(step_increase))
-        if new_hi != int(hi):
-            cfg.stairs_steps_range = (int(lo), new_hi)
-            if hasattr(cfg, "num_steps_range"):
-                cfg.num_steps_range = (int(lo), new_hi)
-            print(f"[Virtual Stairs Curriculum] max steps updated: {new_hi}")
-
-    return {"stairs_steps_hi": float(new_hi)}
 
 
 def curriculum_terrain_diffiƒculty(

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class ClimbPathCommand(SegmentPathCommand):
-    """Path with a CLIMB segment (step-like rise + top traversal)."""
+    """Path with a CLIMB segment (ramp up/down, max 30 deg)."""
 
     cfg: PathCommandCfg
 
@@ -25,12 +25,12 @@ class ClimbPathCommand(SegmentPathCommand):
     def _resample_command(self, env_ids: torch.Tensor):
         self._set_planned_frame_from_robot(env_ids)
 
-        cp = self.cfg.climb_params
-        total_len = torch.full((len(env_ids),), float(self.cfg.ranges.default_path_len), device=self.device)
-
-        s_min, s_max = cp.start_dist_range
-        climb_s0 = torch.empty(len(env_ids), device=self.device).uniform_(s_min, s_max)
-        climb_s1 = (climb_s0 + float(cp.climb_len)).clamp(max=total_len - 1e-3)
+        sp = self.cfg.climb_params
+        s_min, s_max = sp.start_dist_range
+        min_len = float(s_max + sp.climb_len + 0.2)
+        total_len = self._sample_path_length(env_ids, self._planned_start_pos[env_ids], self._planned_yaw[env_ids], min_len=min_len)
+        slope_s0 = torch.empty(len(env_ids), device=self.device).uniform_(s_min, s_max)
+        slope_s1 = (slope_s0 + float(sp.climb_len)).clamp(max=total_len - 1e-3)
 
         self._path_len[env_ids] = total_len
 
@@ -43,20 +43,25 @@ class ClimbPathCommand(SegmentPathCommand):
         pos = start[:, None, :] + (end[:, None, :] - start[:, None, :]) * alpha
 
         dist_at_wp = alpha.squeeze(-1) * total_len[:, None]
-        inside = (dist_at_wp >= climb_s0[:, None]) & (dist_at_wp <= climb_s1[:, None])
-        after = dist_at_wp > climb_s1[:, None]
-        t = ((dist_at_wp - climb_s0[:, None]) / (climb_s1[:, None] - climb_s0[:, None]).clamp(min=1e-3)).clamp(0.0, 1.0)
+        inside = (dist_at_wp >= slope_s0[:, None]) & (dist_at_wp <= slope_s1[:, None])
+        after = dist_at_wp > slope_s1[:, None]
 
-        # Step-like rise: climb most of the height early, then keep a top plateau.
-        rise_ratio = 0.35
-        t_rise = (t / rise_ratio).clamp(0.0, 1.0)
-        smooth = 3.0 * t_rise * t_rise - 2.0 * t_rise * t_rise * t_rise
-        z_rise = float(cp.climb_height) * smooth
-        z_off = torch.where(t <= rise_ratio, z_rise, torch.full_like(z_rise, float(cp.climb_height)))
-        z_plateau = torch.full_like(z_off, float(cp.climb_height))
-        pos[..., 2] = pos[..., 2] + torch.where(inside, z_off, torch.where(after, z_plateau, torch.zeros_like(z_off)))
+        # Sample slope angle within ±max_slope_deg.
+        max_rad = torch.deg2rad(torch.full((len(env_ids),), float(sp.max_slope_deg), device=self.device))
+        angle = torch.empty(len(env_ids), device=self.device).uniform_(-1.0, 1.0) * max_rad
+        slope = torch.tan(angle)
 
-        yaw_wp = self._planned_yaw[env_ids][:, None].repeat(1, self.num_waypoints)
+        # Linear ramp within segment, then keep plateau height.
+        seg_len = (slope_s1 - slope_s0).clamp(min=1e-3)
+        t = ((dist_at_wp - slope_s0[:, None]) / seg_len[:, None]).clamp(0.0, 1.0)
+        z_ramp = slope[:, None] * (t * seg_len[:, None])
+        z_plateau = slope[:, None] * seg_len[:, None]
+        z_off = torch.where(inside, z_ramp, torch.where(after, z_plateau, torch.zeros_like(z_ramp)))
+        pos[..., 2] = pos[..., 2] + z_off
+
+        yaw0 = self._planned_yaw[env_ids]
+        # Keep yaw fixed for non-walk skills.
+        yaw_wp = self._build_fixed_yaw_traj(yaw0)
         self.pos_path_w[env_ids] = pos
         self.heading_path_w[env_ids, :, 0] = yaw_wp
 
@@ -65,17 +70,16 @@ class ClimbPathCommand(SegmentPathCommand):
 
         lead_params = self._new_seg_params(len(env_ids))
         self._set_seg_param(lead_params, "v_ref", 1.0)
-        self._append_segment(env_ids, self.SKILL_ID["walk"], zero, climb_s0, params=lead_params)
+        self._append_segment(env_ids, self.SKILL_ID["walk"], zero, slope_s0, params=lead_params)
 
-        cl_params = self._new_seg_params(len(env_ids))
-        self._set_seg_param(cl_params, "v_ref", 0.65)
-        self._set_seg_param(cl_params, "clearance_ref", 0.18)
-        self._set_seg_param(cl_params, "misc", float(cp.climb_height))
-        self._append_segment(env_ids, self.SKILL_ID["climb"], climb_s0, climb_s1, params=cl_params)
+        climb_params = self._new_seg_params(len(env_ids))
+        self._set_seg_param(climb_params, "v_ref", 0.8)
+        self._set_seg_param(climb_params, "slope_angle_ref", angle)
+        self._append_segment(env_ids, self.SKILL_ID["climb"], slope_s0, slope_s1, params=climb_params)
 
         trail_params = self._new_seg_params(len(env_ids))
         self._set_seg_param(trail_params, "v_ref", 1.0)
-        self._append_segment(env_ids, self.SKILL_ID["walk"], climb_s1, total_len, params=trail_params)
+        self._append_segment(env_ids, self.SKILL_ID["walk"], slope_s1, total_len, params=trail_params)
 
         self._num_segs[env_ids] = torch.clamp(self._num_segs[env_ids], min=1)
         self.current_waypoints_index[env_ids] = 0

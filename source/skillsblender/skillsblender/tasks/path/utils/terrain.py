@@ -10,6 +10,7 @@ import isaaclab.terrains as terrain_gen
 SKILL_TAG_WALK = "walk"
 SKILL_TAG_JUMP = "jump"
 SKILL_TAG_STAIRS = "stairs"
+SKILL_TAG_PLATFORM = "platform"
 SKILL_TAG_CLIMB = "climb"
 SKILL_TAG_CROUCH = "crouch"  # crouch terrain uses extra spawned objects, not heightfield
 
@@ -100,7 +101,7 @@ STAIRS_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
 )
 
 # ----------------------------
-# CLIMB: slope/ramp（ climb 额外 spawn 物体更好；这个 cfg 仍可用于早期训练）
+# CLIMB: ramp/slope (max ~30 deg)
 # ----------------------------
 CLIMB_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=(8.0, 8.0),
@@ -115,7 +116,7 @@ CLIMB_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     sub_terrains={
         "pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
             proportion=1.0,
-            slope_range=(0.10, 0.45),
+            slope_range=(0.10, 0.577),  # tan(30deg) ≈ 0.577
             platform_width=2.0,
             border_width=0.25,
         ),

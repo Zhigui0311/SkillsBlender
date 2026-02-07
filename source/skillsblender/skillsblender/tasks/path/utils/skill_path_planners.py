@@ -12,12 +12,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import torch
-from typing import Any, Dict, Optional, Mapping
+from typing import Any, Dict, Optional, Mapping, Tuple
 
 from skillsblender.tasks.path.mdp.commands.path_command_cfg import (
     WalkParams,
     JumpParams,
     StairsParams,
+    PlatformParams,
     ClimbParams,
     CrouchParams,
 )
@@ -108,6 +109,65 @@ class SkillPathPlanner(ABC):
         pass
 
 
+def _trace_terrain_path(
+    start_pos: torch.Tensor,
+    start_yaw: torch.Tensor,
+    segment_length: torch.Tensor,
+    terrain_data: Dict[str, torch.Tensor],
+    num_waypoints: int = 64,
+    scan_width: float = 0.6,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Trace a terrain-aware path using height_scanner, fallback to flat.
+
+    Returns:
+        waypoints: (N, W, 3)
+        headings: (N, W)
+        dist: (N, W) distance along path
+        z_profile: (N, W)
+        has_scanner: (N,) bool, True when valid scanner data is used
+    """
+    N = start_pos.shape[0]
+    device = start_pos.device
+
+    alpha = torch.linspace(0, 1, num_waypoints, device=device).view(1, -1)
+    dist = alpha * segment_length.unsqueeze(-1)
+
+    fwd = torch.stack([torch.cos(start_yaw), torch.sin(start_yaw)], dim=-1)
+    xy = start_pos[:, None, :2] + fwd[:, None, :] * dist.unsqueeze(-1)
+
+    z_profile = start_pos[:, 2].unsqueeze(-1).repeat(1, num_waypoints)
+    headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
+
+    has_scanner = torch.zeros(N, dtype=torch.bool, device=device)
+    if "height_scanner" in terrain_data:
+        ray_hits_w = terrain_data["height_scanner"]  # (N, R, 3)
+        for bi in range(N):
+            rays = ray_hits_w[bi]
+            if rays.numel() == 0:
+                continue
+            rel = rays - start_pos[bi].unsqueeze(0)
+            cy = torch.cos(start_yaw[bi])
+            sy = torch.sin(start_yaw[bi])
+            x_fwd = cy * rel[:, 0] + sy * rel[:, 1]
+            y_lat = -sy * rel[:, 0] + cy * rel[:, 1]
+            valid = (x_fwd >= 0.0) & (x_fwd <= segment_length[bi]) & (torch.abs(y_lat) <= scan_width)
+            if not torch.any(valid):
+                continue
+            x = x_fwd[valid]
+            z = rays[valid, 2]
+            # Nearest-neighbor sampling along forward distance to preserve sharp edges (stairs).
+            s = dist[bi]
+            diff = torch.abs(s[:, None] - x[None, :])
+            idx = torch.argmin(diff, dim=1)
+            z_profile[bi] = z[idx]
+            has_scanner[bi] = True
+
+    waypoints = torch.zeros(N, num_waypoints, 3, device=device)
+    waypoints[:, :, :2] = xy
+    waypoints[:, :, 2] = z_profile
+    return waypoints, headings, dist, z_profile, has_scanner
+
+
 class WalkPathPlanner(SkillPathPlanner):
     """行走路径规划器 - 生成简单的直线路径"""
 
@@ -195,42 +255,54 @@ class JumpPathPlanner(SkillPathPlanner):
         terrain_data: Dict[str, torch.Tensor],
         segment_length: torch.Tensor,
     ) -> SegmentPlan:
-        """生成跳跃路径"""
+        """生成跳跃路径（Dual Mode: Real / Virtual）"""
         N = len(env_ids)
         device = start_pos.device
 
-        # 1. 检测 gap
-        gap_s0, gap_s1, has_gap = self._detect_gap(
-            start_pos, start_yaw, terrain_data
-        )
+        # 判断是否有真实地形数据
+        has_scanner = "height_scanner" in terrain_data
 
-        # Scanner miss fallback: still synthesize a jump gap so jump skill does not collapse to walk.
-        missing = ~has_gap
-        if torch.any(missing):
-            seg_len_m = segment_length[missing]
-            mid = float(self.cfg.fallback_gap_center_ratio) * seg_len_m
-            gap_w = torch.clamp(0.18 * seg_len_m, min=self.cfg.min_gap_width, max=self.cfg.max_gap_width)
-            s0 = torch.clamp(mid - 0.5 * gap_w, min=self.cfg.min_gap_start_dist)
-            s1 = s0 + gap_w
-            max_gap_end = seg_len_m - max(float(self.cfg.min_landing_runout), 0.5)
-            s1 = torch.minimum(s1, max_gap_end)
-            s0 = torch.minimum(s0, s1 - self.cfg.min_gap_width)
-            gap_s0[missing] = s0
-            gap_s1[missing] = s1
-            has_gap[missing] = True
+        # 1) Real Terrain: gap 检测
+        if has_scanner:
+            gap_s0, gap_s1, has_gap = self._detect_gap(start_pos, start_yaw, terrain_data)
 
-        # Sanitize detected/synthetic gaps.
-        if torch.any(has_gap):
-            hs0 = torch.clamp(gap_s0[has_gap], min=self.cfg.min_gap_start_dist)
-            hw = (gap_s1[has_gap] - hs0).clamp(min=self.cfg.min_gap_width, max=self.cfg.max_gap_width)
-            hs1 = hs0 + hw
-            max_gap_end = segment_length[has_gap] - max(float(self.cfg.min_landing_runout), 0.5)
-            hs1 = torch.minimum(hs1, max_gap_end)
-            hs0 = torch.minimum(hs0, hs1 - self.cfg.min_gap_width)
-            gap_s0[has_gap] = hs0
-            gap_s1[has_gap] = hs1
+            # Scanner miss fallback: still synthesize a jump gap so jump skill does not collapse to walk.
+            missing = ~has_gap
+            if torch.any(missing):
+                seg_len_m = segment_length[missing]
+                mid = float(self.cfg.fallback_gap_center_ratio) * seg_len_m
+                gap_w = torch.clamp(0.18 * seg_len_m, min=self.cfg.min_gap_width, max=self.cfg.max_gap_width)
+                s0 = torch.clamp(mid - 0.5 * gap_w, min=self.cfg.min_gap_start_dist)
+                s1 = s0 + gap_w
+                max_gap_end = seg_len_m - max(float(self.cfg.min_landing_runout), 0.5)
+                s1 = torch.minimum(s1, max_gap_end)
+                s0 = torch.minimum(s0, s1 - self.cfg.min_gap_width)
+                gap_s0[missing] = s0
+                gap_s1[missing] = s1
+                has_gap[missing] = True
 
-        # 2. 计算跳跃参数
+            # Sanitize detected/synthetic gaps.
+            if torch.any(has_gap):
+                hs0 = torch.clamp(gap_s0[has_gap], min=self.cfg.min_gap_start_dist)
+                hw = (gap_s1[has_gap] - hs0).clamp(min=self.cfg.min_gap_width, max=self.cfg.max_gap_width)
+                hs1 = hs0 + hw
+                max_gap_end = segment_length[has_gap] - max(float(self.cfg.min_landing_runout), 0.5)
+                hs1 = torch.minimum(hs1, max_gap_end)
+                hs0 = torch.minimum(hs0, hs1 - self.cfg.min_gap_width)
+                gap_s0[has_gap] = hs0
+                gap_s1[has_gap] = hs1
+        else:
+            # 2) Virtual / Flat: sample a synthetic gap
+            has_gap = torch.ones(N, dtype=torch.bool, device=device)
+            gap_w = torch.empty((N,), device=device).uniform_(self.cfg.min_gap_width, self.cfg.max_gap_width)
+            min_start = torch.full((N,), float(self.cfg.min_jump_start_dist), device=device)
+            max_start = segment_length - gap_w - float(self.cfg.min_landing_runout)
+            max_start = torch.maximum(max_start, min_start)
+            u = torch.rand((N,), device=device)
+            gap_s0 = min_start + (max_start - min_start) * u
+            gap_s1 = gap_s0 + gap_w
+
+        # 3) 跳跃参数（Real / Virtual 共用）
         gap_w = (gap_s1 - gap_s0).clamp(min=0.0)
         if self.cfg.takeoff_margin is None:
             takeoff = torch.clamp(
@@ -281,35 +353,42 @@ class JumpPathPlanner(SkillPathPlanner):
         if self.cfg.post_jump_distance > 0.0:
             planned_len = planned_len + float(self.cfg.post_jump_distance)
 
-        # 3. 生成基础线性路径
-        forward_dir = torch.stack([
-            torch.cos(start_yaw),
-            torch.sin(start_yaw),
-            torch.zeros_like(start_yaw),
-        ], dim=-1)
+        # 4) Terrain-aware base path (flat if no scanner)
+        waypoints, headings, dist_at_wp, z_profile, _ = _trace_terrain_path(
+            start_pos=start_pos,
+            start_yaw=start_yaw,
+            segment_length=planned_len,
+            terrain_data=terrain_data if has_scanner else {},
+            num_waypoints=64,
+            scan_width=float(self.cfg.scan_width),
+        )
 
-        end_pos = start_pos + forward_dir * planned_len.unsqueeze(-1)
-
-        num_waypoints = 32
-        alpha = torch.linspace(0, 1, num_waypoints, device=device).view(1, -1, 1)
-        waypoints = start_pos.unsqueeze(1) + (end_pos - start_pos).unsqueeze(1) * alpha
-
-        # 4. 在跳跃段添加抛物线轨迹
-        dist_at_wp = alpha.squeeze(-1) * planned_len.unsqueeze(-1)  # (N, W)
+        # 5) 在跳跃段添加抛物线轨迹（起落点对齐地形高度）
         den = (jump_s1.unsqueeze(-1) - jump_s0.unsqueeze(-1)).clamp(min=1e-3)
         t = ((dist_at_wp - jump_s0.unsqueeze(-1)) / den).clamp(0.0, 1.0)
+
+        # Sample takeoff/landing heights from traced terrain.
+        z0 = torch.zeros(N, device=device)
+        z1 = torch.zeros(N, device=device)
+        for bi in range(N):
+            idx0 = torch.argmin(torch.abs(dist_at_wp[bi] - jump_s0[bi]))
+            idx1 = torch.argmin(torch.abs(dist_at_wp[bi] - jump_s1[bi]))
+            z0[bi] = z_profile[bi, idx0]
+            z1[bi] = z_profile[bi, idx1]
+
+        z_lin = z0.unsqueeze(-1) + (z1 - z0).unsqueeze(-1) * t
         arc = jump_height.unsqueeze(-1) * 4.0 * t * (1.0 - t)
+        z_jump = z_lin + arc
 
         mask = (dist_at_wp >= jump_s0.unsqueeze(-1)) & (dist_at_wp <= jump_s1.unsqueeze(-1)) & has_gap.unsqueeze(-1)
-        waypoints[..., 2] = waypoints[..., 2] + torch.where(mask, arc, torch.zeros_like(arc))
+        waypoints[..., 2] = torch.where(mask, z_jump, z_profile)
 
-        # 5. 保持恒定航向
-        headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
-
-        # 6. 构建 segment 参数
+        # 6) 构建 segment 参数（只输出标量参数，不暴露扫描原始数据）
         segment_params = self._make_segment_params(N)
         self._set_segment_param(segment_params, "v_ref", 1.45)
         self._set_segment_param(segment_params, "jump_height_ref", jump_height)
+        # Store gap width in misc for downstream use (if any).
+        self._set_segment_param(segment_params, "misc", gap_w)
 
         return SegmentPlan(
             waypoints=waypoints,
@@ -387,10 +466,10 @@ class JumpPathPlanner(SkillPathPlanner):
         self,
         terrain_data: Dict[str, torch.Tensor],
     ) -> torch.Tensor:
-        """验证是否有 gap"""
+        """验证是否可用（Real 或 Virtual）"""
         if "height_scanner" not in terrain_data:
             N = 1
-            return torch.zeros(N, dtype=torch.bool, device=self.device)
+            return torch.ones(N, dtype=torch.bool, device=self.device)
 
         # 简单检测：是否有高度低于阈值的点
         ray_hits_w = terrain_data["height_scanner"]
@@ -424,44 +503,62 @@ class StairsPathPlanner(SkillPathPlanner):
         terrain_data: Dict[str, torch.Tensor],
         segment_length: torch.Tensor,
     ) -> SegmentPlan:
-        """生成楼梯路径"""
+        """生成楼梯路径（Real Mode Only）"""
         N = len(env_ids)
         device = start_pos.device
 
-        # 1. 计算楼梯参数
-        stairs_len = min(self.cfg.stairs_len, segment_length.min().item())
-        num_steps = int(stairs_len / self.cfg.step_length)
-        step_height = self.cfg.step_height if self.direction == "up" else -self.cfg.step_height
+        stairs_len = torch.minimum(
+            segment_length,
+            torch.full_like(segment_length, float(self.cfg.stairs_len)),
+        )
 
-        # 2. 生成楼梯航点
-        num_waypoints = num_steps * 2  # 每个台阶 2 个航点（水平 + 垂直）
-        waypoints = torch.zeros(N, num_waypoints, 3, device=device)
+        if "height_scanner" not in terrain_data:
+            # No virtual mode for contact-dominant skills, fallback to Walk.
+            waypoints, headings, _, _, _ = _trace_terrain_path(
+                start_pos=start_pos,
+                start_yaw=start_yaw,
+                segment_length=stairs_len,
+                terrain_data={},
+                num_waypoints=64,
+                scan_width=0.6,
+            )
+            params = self._make_segment_params(N)
+            self._set_segment_param(params, "v_ref", 1.0)
+            return SegmentPlan(
+                waypoints=waypoints,
+                headings=headings,
+                skill_id=0,  # walk
+                segment_length=stairs_len,
+                segment_params=params,
+                valid=torch.ones(N, dtype=torch.bool, device=device),
+            )
 
-        forward_dir = torch.stack([
-            torch.cos(start_yaw),
-            torch.sin(start_yaw),
-        ], dim=-1)
+        # 1) Terrain-aware path (dense samples to preserve step edges)
+        num_waypoints = max(64, int(float(self.cfg.stairs_len) / float(self.cfg.step_length)) * 4)
+        waypoints, headings, _, z_profile, _ = _trace_terrain_path(
+            start_pos=start_pos,
+            start_yaw=start_yaw,
+            segment_length=stairs_len,
+            terrain_data=terrain_data,
+            num_waypoints=num_waypoints,
+            scan_width=0.6,
+        )
 
-        for i in range(num_steps):
-            # 水平移动
-            wp_idx = i * 2
-            dist = i * self.cfg.step_length
-            height = i * step_height
-            waypoints[:, wp_idx, :2] = start_pos[:, :2] + forward_dir * dist
-            waypoints[:, wp_idx, 2] = start_pos[:, 2] + height
+        # 2) 提取 step_height（从地形高度变化估计）
+        step_height = torch.full((N,), float(self.cfg.step_height), device=device)
+        for bi in range(N):
+            dz = z_profile[bi, 1:] - z_profile[bi, :-1]
+            if self.direction == "down":
+                dz = -dz
+            candidates = dz[dz > 0.02]
+            if candidates.numel() > 0:
+                step_height[bi] = candidates.median()
 
-            # 垂直移动
-            wp_idx = i * 2 + 1
-            waypoints[:, wp_idx, :2] = waypoints[:, wp_idx - 1, :2]
-            waypoints[:, wp_idx, 2] = start_pos[:, 2] + (i + 1) * step_height
-
-        # 3. 保持恒定航向
-        headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
-
-        # 4. 构建 segment 参数
+        # 3) 构建 segment 参数（高抬腿）
         segment_params = self._make_segment_params(N)
-        self._set_segment_param(segment_params, "v_ref", 0.5)
-        self._set_segment_param(segment_params, "base_height_ref", self.cfg.step_height)
+        self._set_segment_param(segment_params, "v_ref", 0.6)
+        self._set_segment_param(segment_params, "step_height_ref", step_height)
+        self._set_segment_param(segment_params, "misc", float(self.cfg.step_length))
 
         skill_id = 2 if self.direction == "up" else 3  # stairs_up / stairs_down
 
@@ -469,7 +566,7 @@ class StairsPathPlanner(SkillPathPlanner):
             waypoints=waypoints,
             headings=headings,
             skill_id=skill_id,
-            segment_length=torch.full((N,), stairs_len, device=device),
+            segment_length=stairs_len,
             segment_params=segment_params,
             valid=torch.ones(N, dtype=torch.bool, device=device),
         )
@@ -478,16 +575,19 @@ class StairsPathPlanner(SkillPathPlanner):
         self,
         terrain_data: Dict[str, torch.Tensor],
     ) -> torch.Tensor:
-        """验证楼梯地形"""
-        return torch.tensor([True], device=self.device)
+        """验证楼梯地形（仅真实模式）"""
+        if "height_scanner" not in terrain_data:
+            return torch.tensor([False], device=self.device)
+        N = terrain_data["height_scanner"].shape[0]
+        return torch.ones(N, dtype=torch.bool, device=self.device)
 
 
-class ClimbPathPlanner(SkillPathPlanner):
-    """攀爬路径规划器 - 生成斜坡路径"""
+class PlatformPathPlanner(SkillPathPlanner):
+    """高台攀爬路径规划器 - 生成平地->垂直上升->高台路径"""
 
     def __init__(
         self,
-        cfg: ClimbParams,
+        cfg: PlatformParams,
         device: torch.device,
         num_seg_params: int = 6,
         seg_param: Mapping[str, int] | None = None,
@@ -502,40 +602,70 @@ class ClimbPathPlanner(SkillPathPlanner):
         terrain_data: Dict[str, torch.Tensor],
         segment_length: torch.Tensor,
     ) -> SegmentPlan:
-        """生成斜坡路径"""
+        """生成高台攀爬路径（Real Mode Only）"""
         N = len(env_ids)
         device = start_pos.device
 
-        # 1. 计算斜坡参数
-        climb_len = min(self.cfg.climb_len, segment_length.min().item())
-        climb_height = self.cfg.climb_height
+        climb_len = torch.minimum(
+            segment_length,
+            torch.full_like(segment_length, float(self.cfg.climb_len)),
+        )
 
-        # 2. 生成斜坡航点（线性高度增加）
-        num_waypoints = 32
-        alpha = torch.linspace(0, 1, num_waypoints, device=device).view(1, -1)
+        if "height_scanner" not in terrain_data:
+            # No virtual mode for contact-dominant skills, fallback to Walk.
+            waypoints, headings, _, _, _ = _trace_terrain_path(
+                start_pos=start_pos,
+                start_yaw=start_yaw,
+                segment_length=climb_len,
+                terrain_data={},
+                num_waypoints=64,
+                scan_width=0.6,
+            )
+            params = self._make_segment_params(N)
+            self._set_segment_param(params, "v_ref", 1.0)
+            return SegmentPlan(
+                waypoints=waypoints,
+                headings=headings,
+                skill_id=0,  # walk
+                segment_length=climb_len,
+                segment_params=params,
+                valid=torch.ones(N, dtype=torch.bool, device=device),
+            )
 
-        forward_dir = torch.stack([
-            torch.cos(start_yaw),
-            torch.sin(start_yaw),
-        ], dim=-1)
+        # 1) Terrain-aware path
+        waypoints, headings, dist_at_wp, z_profile, _ = _trace_terrain_path(
+            start_pos=start_pos,
+            start_yaw=start_yaw,
+            segment_length=climb_len,
+            terrain_data=terrain_data,
+            num_waypoints=64,
+            scan_width=0.6,
+        )
 
-        waypoints = torch.zeros(N, num_waypoints, 3, device=device)
-        waypoints[:, :, :2] = start_pos[:, :2].unsqueeze(1) + forward_dir.unsqueeze(1) * (alpha.unsqueeze(-1) * climb_len)
-        waypoints[:, :, 2] = start_pos[:, 2].unsqueeze(1) + alpha * climb_height
+        # 2) 提取 climb_height（高台高度）
+        climb_height = (z_profile.max(dim=1).values - z_profile.min(dim=1).values).clamp(min=0.0)
 
-        # 3. 保持恒定航向
-        headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
+        # 强化为“平地 -> 垂直上升 -> 高台平地”
+        for bi in range(N):
+            dz = z_profile[bi, 1:] - z_profile[bi, :-1]
+            if dz.numel() == 0:
+                continue
+            idx = torch.argmax(dz)
+            z0 = z_profile[bi, 0]
+            z1 = z0 + climb_height[bi]
+            waypoints[bi, : idx + 1, 2] = z0
+            waypoints[bi, idx + 1 :, 2] = z1
 
-        # 4. 构建 segment 参数
+        # 3) 构建 segment 参数
         segment_params = self._make_segment_params(N)
         self._set_segment_param(segment_params, "v_ref", 0.7)
-        self._set_segment_param(segment_params, "base_height_ref", climb_height)
+        self._set_segment_param(segment_params, "misc", climb_height)
 
         return SegmentPlan(
             waypoints=waypoints,
             headings=headings,
-            skill_id=6,  # SKILL_ID["climb"]
-            segment_length=torch.full((N,), climb_len, device=device),
+            skill_id=6,  # SKILL_ID["platform"]
+            segment_length=climb_len,
             segment_params=segment_params,
             valid=torch.ones(N, dtype=torch.bool, device=device),
         )
@@ -544,8 +674,11 @@ class ClimbPathPlanner(SkillPathPlanner):
         self,
         terrain_data: Dict[str, torch.Tensor],
     ) -> torch.Tensor:
-        """验证斜坡地形"""
-        return torch.tensor([True], device=self.device)
+        """验证高台地形（仅真实模式）"""
+        if "height_scanner" not in terrain_data:
+            return torch.tensor([False], device=self.device)
+        N = terrain_data["height_scanner"].shape[0]
+        return torch.ones(N, dtype=torch.bool, device=self.device)
 
 
 class CrouchPathPlanner(SkillPathPlanner):
@@ -568,39 +701,72 @@ class CrouchPathPlanner(SkillPathPlanner):
         terrain_data: Dict[str, torch.Tensor],
         segment_length: torch.Tensor,
     ) -> SegmentPlan:
-        """生成蹲伏路径"""
+        """生成蹲伏路径（Dual Mode: Real / Virtual）"""
         N = len(env_ids)
         device = start_pos.device
 
-        # 1. 计算蹲伏段长度
         crouch_len = min(self.cfg.crouch_len, segment_length.min().item())
+        seg_len = torch.full((N,), crouch_len, device=device)
 
-        # 2. 生成直线路径（低姿态）
-        num_waypoints = 32
-        alpha = torch.linspace(0, 1, num_waypoints, device=device).view(1, -1, 1)
+        has_scanner = "height_scanner" in terrain_data
 
-        forward_dir = torch.stack([
-            torch.cos(start_yaw),
-            torch.sin(start_yaw),
-            torch.zeros_like(start_yaw),
-        ], dim=-1)
+        # 1) Real Terrain: 贴地轨迹
+        if has_scanner:
+            waypoints, headings, dist_at_wp, z_profile, has_valid = _trace_terrain_path(
+                start_pos=start_pos,
+                start_yaw=start_yaw,
+                segment_length=seg_len,
+                terrain_data=terrain_data,
+                num_waypoints=64,
+                scan_width=0.6,
+            )
+            depth = None
+        else:
+            # 2) Virtual / Flat: 先生成绝对平直路径
+            waypoints, headings, dist_at_wp, z_profile, has_valid = _trace_terrain_path(
+                start_pos=start_pos,
+                start_yaw=start_yaw,
+                segment_length=seg_len,
+                terrain_data={},
+                num_waypoints=64,
+                scan_width=0.6,
+            )
 
-        end_pos = start_pos + forward_dir * crouch_len
-        waypoints = start_pos.unsqueeze(1) + (end_pos - start_pos).unsqueeze(1) * alpha
+            # 在平地上生成下潜曲线（cosine 平滑）
+            # 目标下潜深度：从配置中采样，没有则用 base_height_ref 的比例
+            if hasattr(self.cfg, "crouch_height_range"):
+                h_min, h_max = self.cfg.crouch_height_range
+                depth = torch.empty((N,), device=device).uniform_(float(h_min), float(h_max))
+            else:
+                depth = torch.full((N,), max(0.08, 0.5 * float(self.cfg.base_height_ref)), device=device)
 
-        # 3. 保持恒定航向
-        headings = start_yaw.unsqueeze(-1).repeat(1, num_waypoints)
+            t = dist_at_wp / torch.clamp(seg_len.unsqueeze(-1), min=1e-3)
+            smooth = 0.5 - 0.5 * torch.cos(2.0 * torch.pi * t)  # 0->1->0
+            z_offset = -depth.unsqueeze(-1) * smooth
+            waypoints[..., 2] = z_profile + z_offset
 
-        # 4. 构建 segment 参数（低姿态）
+        # 3) 参数提取：障碍高度（简化为地形起伏高度）
+        if has_scanner:
+            obs_height = (z_profile.max(dim=1).values - z_profile.min(dim=1).values).clamp(min=0.0)
+            target_base_h = torch.clamp(
+                start_pos[:, 2] - obs_height,
+                min=0.12,
+                max=start_pos[:, 2],
+            )
+        else:
+            # Virtual: base height target follows the hallucinated crouch depth.
+            target_base_h = torch.clamp(start_pos[:, 2] - depth, min=0.12, max=start_pos[:, 2])
+
+        # 4) 构建 segment 参数（低姿态）
         segment_params = self._make_segment_params(N)
         self._set_segment_param(segment_params, "v_ref", 0.5)
-        self._set_segment_param(segment_params, "base_height_ref", self.cfg.base_height_ref)
+        self._set_segment_param(segment_params, "base_height_ref", target_base_h)
 
         return SegmentPlan(
             waypoints=waypoints,
             headings=headings,
             skill_id=4,  # SKILL_ID["crouch"]
-            segment_length=torch.full((N,), crouch_len, device=device),
+            segment_length=seg_len,
             segment_params=segment_params,
             valid=torch.ones(N, dtype=torch.bool, device=device),
         )
@@ -611,6 +777,99 @@ class CrouchPathPlanner(SkillPathPlanner):
     ) -> torch.Tensor:
         """验证蹲伏地形"""
         return torch.tensor([True], device=self.device)
+
+
+class ClimbPathPlanner(SkillPathPlanner):
+    """爬坡路径规划器 - 生成坡道路径（Real Mode Only, max 30 deg）"""
+
+    def __init__(
+        self,
+        cfg,
+        device: torch.device,
+        num_seg_params: int = 6,
+        seg_param: Mapping[str, int] | None = None,
+    ):
+        super().__init__(cfg, device, num_seg_params=num_seg_params, seg_param=seg_param)
+
+    def plan_segment(
+        self,
+        env_ids: torch.Tensor,
+        start_pos: torch.Tensor,
+        start_yaw: torch.Tensor,
+        terrain_data: Dict[str, torch.Tensor],
+        segment_length: torch.Tensor,
+    ) -> SegmentPlan:
+        N = len(env_ids)
+        device = start_pos.device
+
+        climb_len = torch.minimum(
+            segment_length,
+            torch.full_like(segment_length, float(self.cfg.climb_len)),
+        )
+
+        if "height_scanner" not in terrain_data:
+            # No virtual mode for contact-dominant skills, fallback to Walk.
+            waypoints, headings, _, _, _ = _trace_terrain_path(
+                start_pos=start_pos,
+                start_yaw=start_yaw,
+                segment_length=climb_len,
+                terrain_data={},
+                num_waypoints=64,
+                scan_width=0.6,
+            )
+            params = self._make_segment_params(N)
+            self._set_segment_param(params, "v_ref", 1.0)
+            return SegmentPlan(
+                waypoints=waypoints,
+                headings=headings,
+                skill_id=0,  # walk
+                segment_length=climb_len,
+                segment_params=params,
+                valid=torch.ones(N, dtype=torch.bool, device=device),
+            )
+
+        waypoints, headings, dist_at_wp, z_profile, _ = _trace_terrain_path(
+            start_pos=start_pos,
+            start_yaw=start_yaw,
+            segment_length=climb_len,
+            terrain_data=terrain_data,
+            num_waypoints=64,
+            scan_width=0.6,
+        )
+
+        # Estimate slope angle and clamp to max_slope_deg.
+        dz = z_profile[:, -1] - z_profile[:, 0]
+        angle = torch.atan2(dz, torch.clamp(climb_len, min=1e-3))
+        max_rad = torch.deg2rad(torch.full((N,), float(self.cfg.max_slope_deg), device=device))
+        angle = torch.clamp(angle, -max_rad, max_rad)
+
+        # If terrain slope is steeper than max, scale z profile.
+        scale = torch.clamp(max_rad / torch.clamp(torch.abs(angle), min=1e-6), max=1.0)
+        z0 = z_profile[:, :1]
+        z_profile = z0 + (z_profile - z0) * scale[:, None]
+        waypoints[..., 2] = z_profile
+
+        params = self._make_segment_params(N)
+        self._set_segment_param(params, "v_ref", 0.8)
+        self._set_segment_param(params, "slope_angle_ref", angle)
+
+        return SegmentPlan(
+            waypoints=waypoints,
+            headings=headings,
+            skill_id=7,  # SKILL_ID["climb"]
+            segment_length=climb_len,
+            segment_params=params,
+            valid=torch.ones(N, dtype=torch.bool, device=device),
+        )
+
+    def validate_terrain(
+        self,
+        terrain_data: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        if "height_scanner" not in terrain_data:
+            return torch.tensor([False], device=self.device)
+        N = terrain_data["height_scanner"].shape[0]
+        return torch.ones(N, dtype=torch.bool, device=self.device)
 
 
 @dataclass(frozen=True)
@@ -640,6 +899,7 @@ def build_default_skill_planner_registry() -> dict[str, SkillPlannerRegistration
             "stairs_params",
             planner_kwargs={"direction": "down"},
         ),
+        "platform": SkillPlannerRegistration(PlatformPathPlanner, "platform_params"),
         "climb": SkillPlannerRegistration(ClimbPathPlanner, "climb_params"),
         "crouch": SkillPlannerRegistration(CrouchPathPlanner, "crouch_params"),
     }

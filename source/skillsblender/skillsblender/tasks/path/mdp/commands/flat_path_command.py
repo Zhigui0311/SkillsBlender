@@ -32,7 +32,9 @@ class FlatPathCommand(SegmentPathCommand):
 
         alpha = self.t_alpha.view(1, -1, 1)
         pos = start[:, None, :] + (end[:, None, :] - start[:, None, :]) * alpha
-        yaw = self._planned_yaw[env_ids][:, None].repeat(1, self.num_waypoints)
+        yaw0 = self._planned_yaw[env_ids]
+        yaw_goal = self._sample_goal_yaw(yaw0)
+        yaw = self._build_yaw_traj(yaw0, yaw_goal)
 
         self.pos_path_w[env_ids] = pos
         self.heading_path_w[env_ids, :, 0] = yaw

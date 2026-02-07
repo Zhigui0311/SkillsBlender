@@ -12,4 +12,4 @@ from .rewards import *
 from .terminations import *
 # from .events import *
 from .curriculum import *
-
+from .curriculum_platform_path import *

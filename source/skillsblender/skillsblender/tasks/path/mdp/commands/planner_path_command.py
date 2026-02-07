@@ -37,12 +37,15 @@ class PlannerPathCommand(SegmentPathCommand):
         gen_cfg.num_seg_params = max(int(cfg.ranges.num_seg_params), 0)
         sync_skill_params_to_generator_cfg(cfg, generator_cfg=gen_cfg, skill_names=list(self.SKILL_NAMES))
         self._generator_cfg = gen_cfg
+        # Build skill-id map (skills are now explicit, no aliases).
+        skill_id_map = dict(self.SKILL_ID)
+
         self._path_generator = TerrainAwarePathGenerator(
             gen_cfg,
             self.device,
             num_seg_params=self.num_seg_params,
             seg_param=self.SEG_PARAM,
-            skill_id_map=self.SKILL_ID,
+            skill_id_map=skill_id_map,
         )
 
     def _build_env_bounds(self, start_pos: torch.Tensor) -> torch.Tensor:
@@ -137,6 +140,16 @@ class PlannerPathCommand(SegmentPathCommand):
         self._path_len[env_ids] = path_result.path_length
         self.pos_path_w[env_ids] = path_result.waypoints
         self.heading_path_w[env_ids, :, 0] = path_result.headings
+
+        # Optional yaw interpolation override (only for walk-only paths).
+        sampling = self.cfg.sampling
+        yaw_mode = str(getattr(sampling, "yaw_mode", "fixed")).lower()
+        allow_interp = all(s == "walk" for s in skill_sequence)
+        if allow_interp and yaw_mode in ("interp", "linear", "lerp"):
+            yaw0 = self._planned_yaw[env_ids]
+            yaw_goal = self._sample_goal_yaw(yaw0)
+            yaw_traj = self._build_yaw_traj(yaw0, yaw_goal)
+            self.heading_path_w[env_ids, :, 0] = yaw_traj
 
         self._clear_segments(env_ids)
         num_segments = int(path_result.num_segments.max().item())

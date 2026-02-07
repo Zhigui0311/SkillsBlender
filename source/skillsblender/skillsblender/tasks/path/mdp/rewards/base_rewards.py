@@ -85,6 +85,15 @@ def track_path_pos_xy_exp(
     error_sq = torch.square(command.metrics["error_pos_xy"])
     return torch.exp(-error_sq / std**2)
 
+def track_path_pos_z_exp(
+    env: ManagerBasedRLEnv,
+    std: float = 0.10,
+    command_name: str = "path_tracking",
+) -> torch.Tensor:
+    """Track virtual Z target from command waypoints with an exponential kernel."""
+    command = env.command_manager.get_term(command_name)
+    err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
+    return torch.exp(-torch.square(err) / (std**2))
 
 def track_path_heading_exp(
     env: ManagerBasedRLEnv,

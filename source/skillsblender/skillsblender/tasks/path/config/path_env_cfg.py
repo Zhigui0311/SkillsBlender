@@ -271,6 +271,7 @@ class CommandsCfg:
             yaw_type="along_path",
             start_heading=(-math.pi, 0),
             end_heading=(0, math.pi),
+            sample_goal_distance=True,
         ),
         ranges=mdp.commands.PathCommandCfg.Ranges(
             num_waypoints=80,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import torch
 from typing import TYPE_CHECKING
 
@@ -28,8 +29,9 @@ class SegmentPathCommand(CommandTerm):
         "stairs_up",
         "stairs_down",
         "crouch",
-        "sidestep", #占位技能
-        "climb",
+        "platform",  # high platform climb
+        "climb",     # ramp/slope traversal
+        "sidestep",  # 占位技能
     ]
     SKILL_ID = {name: i for i, name in enumerate(SKILL_NAMES)}
     NUM_SKILLS = len(SKILL_NAMES)
@@ -39,6 +41,7 @@ class SegmentPathCommand(CommandTerm):
     SKILL_STAIRS_DOWN = SKILL_ID["stairs_down"]
     SKILL_CROUCH = SKILL_ID["crouch"]
     SKILL_SIDESTEP = SKILL_ID["sidestep"]
+    SKILL_PLATFORM = SKILL_ID["platform"]
     SKILL_CLIMB = SKILL_ID["climb"]
 
     # -------- segment parameter slots (single source of truth) --------
@@ -236,6 +239,113 @@ class SegmentPathCommand(CommandTerm):
         rel = self.robot.data.root_pos_w[:, :2] - self._planned_start_pos[:, :2]
         return torch.sum(rel * self._planned_forward_dir, dim=-1)
 
+    # ----------------- sampling helpers -----------------
+    def _sample_uniform_range(self, num_envs: int, low: float, high: float, fallback: float) -> torch.Tensor:
+        """Sample one scalar per env from [low, high], with robust fallbacks."""
+        lo = float(low)
+        hi = float(high)
+        if not math.isfinite(lo) or not math.isfinite(hi):
+            return torch.full((num_envs,), float(fallback), device=self.device)
+        if hi < lo:
+            lo, hi = hi, lo
+        if hi - lo < 1e-6:
+            return torch.full((num_envs,), lo, device=self.device)
+        return torch.empty((num_envs,), device=self.device).uniform_(lo, hi)
+
+    def _build_env_bounds(self, start_pos: torch.Tensor) -> torch.Tensor:
+        """Compute per-env XY bounds based on cfg.path_generator_cfg.env_bounds."""
+        bounds = self.cfg.path_generator_cfg.env_bounds
+        x_min = start_pos[:, 0] + bounds.x_range[0]
+        x_max = start_pos[:, 0] + bounds.x_range[1]
+        y_min = start_pos[:, 1] + bounds.y_range[0]
+        y_max = start_pos[:, 1] + bounds.y_range[1]
+        return torch.stack([x_min, x_max, y_min, y_max], dim=-1)
+
+    def _compute_max_path_length(
+        self,
+        start_pos: torch.Tensor,
+        start_yaw: torch.Tensor,
+        env_bounds: torch.Tensor,
+    ) -> torch.Tensor:
+        """Max forward distance within env bounds along planned yaw."""
+        start_xy = start_pos[:, :2]
+        forward_dir = torch.stack([torch.cos(start_yaw), torch.sin(start_yaw)], dim=-1)
+
+        x_min, x_max, y_min, y_max = env_bounds.unbind(dim=-1)
+        t_x_min = (x_min - start_xy[:, 0]) / (forward_dir[:, 0] + 1e-6)
+        t_x_max = (x_max - start_xy[:, 0]) / (forward_dir[:, 0] + 1e-6)
+        t_y_min = (y_min - start_xy[:, 1]) / (forward_dir[:, 1] + 1e-6)
+        t_y_max = (y_max - start_xy[:, 1]) / (forward_dir[:, 1] + 1e-6)
+
+        t_all = torch.stack([t_x_min, t_x_max, t_y_min, t_y_max], dim=-1)
+        t_all = torch.where(t_all > 0, t_all, torch.full_like(t_all, float("inf")))
+        max_len = torch.min(t_all, dim=-1).values
+
+        max_len = max_len - float(self.cfg.path_generator_cfg.env_bounds.boundary_margin)
+        return torch.clamp(max_len, min=1.0)
+
+    def _sample_path_length(
+        self,
+        env_ids: torch.Tensor,
+        start_pos: torch.Tensor,
+        start_yaw: torch.Tensor,
+        min_len: float | None = None,
+    ) -> torch.Tensor:
+        """Sample a forward path length, clamped to env bounds."""
+        path_len = torch.full(
+            (len(env_ids),),
+            float(self.cfg.ranges.default_path_len),
+            device=self.device,
+        )
+        sampling = self.cfg.sampling
+        if getattr(sampling, "sample_goal_distance", False):
+            min_d, max_d, _ = sampling.end_to_start_pos
+            path_len = self._sample_uniform_range(
+                len(env_ids),
+                float(min_d),
+                float(max_d),
+                fallback=float(self.cfg.ranges.default_path_len),
+            )
+
+        env_bounds = self._build_env_bounds(start_pos)
+        max_len = self._compute_max_path_length(start_pos, start_yaw, env_bounds)
+
+        if min_len is not None:
+            path_len = torch.maximum(path_len, torch.full_like(path_len, float(min_len)))
+
+        path_len = torch.minimum(path_len, max_len)
+        return torch.clamp(path_len, min=1.0)
+
+    def _sample_goal_yaw(self, yaw0: torch.Tensor) -> torch.Tensor:
+        """Sample a goal yaw when interpolation is enabled; otherwise return yaw0."""
+        sampling = self.cfg.sampling
+        yaw_mode = str(getattr(sampling, "yaw_mode", "fixed")).lower()
+        if yaw_mode not in ("interp", "linear", "lerp"):
+            return yaw0
+        lo, hi = sampling.end_heading
+        lo = float(lo)
+        hi = float(hi)
+        if not math.isfinite(lo) or not math.isfinite(hi):
+            return yaw0
+        if hi < lo:
+            lo, hi = hi, lo
+        if hi - lo < 1e-6:
+            return torch.full_like(yaw0, lo)
+        return torch.empty_like(yaw0).uniform_(lo, hi)
+
+    def _build_yaw_traj(self, yaw0: torch.Tensor, yaw_goal: torch.Tensor) -> torch.Tensor:
+        """Build yaw trajectory for the current path (fixed or interpolated)."""
+        sampling = self.cfg.sampling
+        yaw_mode = str(getattr(sampling, "yaw_mode", "fixed")).lower()
+        if yaw_mode not in ("interp", "linear", "lerp"):
+            return yaw0[:, None].repeat(1, self.num_waypoints)
+        delta = wrap_to_pi(yaw_goal - yaw0)
+        return yaw0[:, None] + delta[:, None] * self.t_alpha[None, :]
+
+    def _build_fixed_yaw_traj(self, yaw0: torch.Tensor) -> torch.Tensor:
+        """Always keep yaw fixed along the path."""
+        return yaw0[:, None].repeat(1, self.num_waypoints)
+
     @property
     def current_skill_id(self) -> torch.Tensor:
         """Current active skill-id for each environment."""
@@ -276,6 +386,10 @@ class SegmentPathCommand(CommandTerm):
     @property
     def is_in_crouch_phase(self) -> torch.Tensor:
         return self.is_in_skill_phase("crouch")
+
+    @property
+    def is_in_platform_phase(self) -> torch.Tensor:
+        return self.is_in_skill_phase("platform")
 
     @property
     def is_in_climb_phase(self) -> torch.Tensor:
@@ -475,6 +589,16 @@ class SegmentPathCommand(CommandTerm):
         self.time_left[env_ids] = 1.0e9
         self._goal_hold[env_ids] = True
 
+    @staticmethod
+    def _yaw_to_quat(yaw: torch.Tensor) -> torch.Tensor:
+        """Convert yaw angles (rad) to wxyz quaternions."""
+        half = 0.5 * yaw
+        # Note: IsaacLab uses wxyz ordering for quaternions.
+        return torch.stack(
+            [torch.cos(half), torch.zeros_like(half), torch.zeros_like(half), torch.sin(half)],
+            dim=-1,
+        )
+
     # ----------------- debug visualization -----------------
     def _set_debug_vis_impl(self, debug_vis: bool):
         if debug_vis:
@@ -482,25 +606,50 @@ class SegmentPathCommand(CommandTerm):
                 self.path_waypoints_visualizer = VisualizationMarkers(self.cfg.path_waypoints_visualizer_cfg)
                 self.goal_visualizer = VisualizationMarkers(self.cfg.path_goal_visualizer_cfg)
                 self.start_visualizer = VisualizationMarkers(self.cfg.path_start_visualizer_cfg)
+            if hasattr(self.cfg, "path_heading_visualizer_cfg") and not hasattr(self, "path_heading_visualizer"):
+                self.path_heading_visualizer = VisualizationMarkers(self.cfg.path_heading_visualizer_cfg)
+            if hasattr(self.cfg, "robot_heading_visualizer_cfg") and not hasattr(self, "robot_heading_visualizer"):
+                self.robot_heading_visualizer = VisualizationMarkers(self.cfg.robot_heading_visualizer_cfg)
             self.path_waypoints_visualizer.set_visibility(True)
             self.goal_visualizer.set_visibility(True)
             self.start_visualizer.set_visibility(True)
+            if hasattr(self, "path_heading_visualizer"):
+                self.path_heading_visualizer.set_visibility(True)
+            if hasattr(self, "robot_heading_visualizer"):
+                self.robot_heading_visualizer.set_visibility(True)
         else:
             if hasattr(self, "path_waypoints_visualizer"):
                 self.path_waypoints_visualizer.set_visibility(False)
                 self.goal_visualizer.set_visibility(False)
                 self.start_visualizer.set_visibility(False)
+            if hasattr(self, "path_heading_visualizer"):
+                self.path_heading_visualizer.set_visibility(False)
+            if hasattr(self, "robot_heading_visualizer"):
+                self.robot_heading_visualizer.set_visibility(False)
 
     def _debug_vis_callback(self, event):
         self.path_waypoints_visualizer.visualize(
             translations=self.pos_path_w.reshape(-1, 3),
         )
+        if hasattr(self, "path_heading_visualizer"):
+            yaw = self.heading_path_w[..., 0].reshape(-1)
+            self.path_heading_visualizer.visualize(
+                translations=self.pos_path_w.reshape(-1, 3),
+                orientations=self._yaw_to_quat(yaw),
+            )
         self.goal_visualizer.visualize(
             translations=self.pos_path_w[torch.arange(self.num_envs), -1],
         )
         self.start_visualizer.visualize(
             translations=self.pos_path_w[torch.arange(self.num_envs), 0],
         )
+        if hasattr(self, "robot_heading_visualizer"):
+            robot_pos = self.robot.data.root_pos_w[:, :3]
+            _, _, robot_yaw = euler_xyz_from_quat(self.robot.data.root_quat_w)
+            self.robot_heading_visualizer.visualize(
+                translations=robot_pos,
+                orientations=self._yaw_to_quat(robot_yaw),
+            )
 
     # ----------------- waypoint progression + metrics -----------------
     def _advance_waypoint_index(self):

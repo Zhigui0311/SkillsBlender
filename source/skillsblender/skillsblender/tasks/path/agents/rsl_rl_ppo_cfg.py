@@ -153,12 +153,12 @@ class GO2StairsPPOCfg(PathRslRlPPOCfg):
 
 
 @configclass
-class GO2ClimbPPOCfg(PathRslRlPPOCfg):
-    """Go2 climb skill PPO configuration."""
+class GO2PlatformPPOCfg(PathRslRlPPOCfg):
+    """Go2 platform climb skill PPO configuration."""
     num_steps_per_env = 48
     max_iterations = 3000
     save_interval = 200
-    experiment_name = "go2-path-climb"
+    experiment_name = "go2-path-platform"
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
         actor_obs_normalization=True,
@@ -301,12 +301,36 @@ class GO2VirtualJumpPPOCfg(GO2VirtualSkillPPOCfg):
 class GO2VirtualCrouchPPOCfg(GO2VirtualSkillPPOCfg):
     experiment_name = "go2-path-virtual-crouch"
 
-
 @configclass
-class GO2VirtualClimbPPOCfg(GO2VirtualSkillPPOCfg):
-    experiment_name = "go2-path-virtual-climb"
-
-
-@configclass
-class GO2VirtualStairsPPOCfg(GO2VirtualSkillPPOCfg):
-    experiment_name = "go2-path-virtual-stairs"
+class GO2ClimbPPOCfg(PathRslRlPPOCfg):
+    """Go2 climb skill PPO configuration."""
+    num_steps_per_env = 48
+    max_iterations = 3000
+    save_interval = 200
+    experiment_name = "go2-path-climb"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
