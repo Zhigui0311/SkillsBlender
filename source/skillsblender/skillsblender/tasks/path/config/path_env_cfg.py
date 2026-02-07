@@ -650,6 +650,46 @@ class RewardsCfg:
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
     )
 
+    # --- Skill-conditioned Z tracking rewards (default disabled) ---
+    track_z_walk = RewTerm(
+        func=mdp.track_path_pos_z_walk_exp,
+        weight=0.0,
+        params={"std": 0.25, "command_name": "path_tracking"},
+    )
+    track_z_jump = RewTerm(
+        func=mdp.track_path_pos_z_jump_exp,
+        weight=0.0,
+        params={"std": 0.15, "command_name": "path_tracking"},
+    )
+    track_z_stairs = RewTerm(
+        func=mdp.track_path_pos_z_stairs_exp,
+        weight=0.0,
+        params={"std": 0.10, "command_name": "path_tracking"},
+    )
+
+    # --- Preparation reward (default disabled) ---
+    preparation_reward = RewTerm(
+        func=mdp.preparation_reward_height_jump,
+        weight=0.0,
+        params={
+            "command_name": "path_tracking",
+            "scan_dist": 1.0,
+            "z_threshold": 0.10,
+            "asset_cfg": SceneEntityCfg("robot"),
+        },
+    )
+
+    # --- Enhanced terrain stumble penalty (default disabled) ---
+    feet_stumble_terrain = RewTerm(
+        func=mdp.feet_stumble_terrain,
+        weight=0.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "command_name": "path_tracking",
+            "terrain_multiplier": 2.0,
+        },
+    )
+
 @configclass
 class TerminationsCfg:
     """Termination conditions for the MDP."""

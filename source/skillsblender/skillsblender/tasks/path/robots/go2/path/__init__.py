@@ -312,3 +312,64 @@ gym.register(
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2VirtualCrouchPPOCfg",
     },
 )
+
+# ==============================================================================
+# Parkour (Multi-Skill Fusion) Environments
+# ==============================================================================
+
+# ---------------------- Direct Training (From Scratch) ----------------------
+gym.register(
+    id="go2-parkour-direct-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_parkour_cfg:Go2ParkourDirectEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ParkourDirectPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-parkour-direct-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_parkour_cfg:Go2ParkourDirectEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ParkourDirectPPOCfg",
+    },
+)
+
+# ---------------------- Distillation Training ----------------------
+gym.register(
+    id="go2-parkour-distill-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_parkour_cfg:Go2ParkourDistillEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ParkourDistillPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-parkour-distill-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_parkour_cfg:Go2ParkourDistillEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ParkourDistillPPOCfg",
+    },
+)
+
+# ---------------------- CNN Path Encoder ----------------------
+gym.register(
+    id="go2-parkour-cnn-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_parkour_cfg:Go2ParkourCNNEnvCfg",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ParkourCNNPPOCfg",
+    },
+)
+
+gym.register(
+    id="go2-parkour-cnn-v0-play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_parkour_cfg:Go2ParkourCNNEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2ParkourCNNPPOCfg",
+    },
+)

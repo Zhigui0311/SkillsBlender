@@ -757,6 +757,116 @@ def curriculum_jump_heading_offset_range(
                 "[Jump Curriculum] Heading offset range updated: "
                 f"{command.cfg.jump_params.heading_offset_range}"
             )
+
+
+# ==============================================================================
+# Stairs Height Curriculum by Tracking Error
+# ==============================================================================
+
+def curriculum_stairs_height_by_tracking(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int] | torch.Tensor | None,
+    command_name: str,
+    error_threshold: float = 0.2,
+    success_rate_threshold: float = 0.7,
+    initial_step_height: float = 0.05,
+    final_step_height: float = 0.20,
+    step_height_increment: float = 0.01,
+    window_size: int = 100,
+) -> dict[str, float] | None:
+    """
+    Curriculum for stairs step height based on XY tracking error and success rate.
+
+    Conditions for progression:
+    - mean(error_pos_xy) < error_threshold (0.2m default)
+    - success_rate > success_rate_threshold (0.7 default)
+
+    Action:
+    - Increase step_height from initial (0.05m) to final (0.20m)
+
+    Uses a rolling window to track metrics for stable curriculum progression.
+
+    Args:
+        env: Environment instance
+        env_ids: Environment indices for evaluation (None for all)
+        command_name: Name of the path command in command manager
+        error_threshold: Maximum mean XY error to allow progression (meters)
+        success_rate_threshold: Minimum success rate to allow progression
+        initial_step_height: Starting step height (meters)
+        final_step_height: Maximum step height (meters)
+        step_height_increment: Height increase per curriculum step (meters)
+        window_size: Rolling window size for metric tracking
+
+    Returns:
+        Dictionary with current step_height, or None if command not found
+    """
+    try:
+        command = env.command_manager.get_term(command_name)
+    except Exception:
+        return None
+
+    if not hasattr(command.cfg, "stairs_params"):
+        return None
+
+    stairs_cfg = command.cfg.stairs_params
+
+    # Initialize tracking buffers if not present
+    if not hasattr(env, "_stairs_curriculum_buffer"):
+        env._stairs_curriculum_buffer = {
+            "error_xy": torch.zeros(window_size, device=env.device),
+            "success": torch.zeros(window_size, device=env.device),
+            "idx": 0,
+            "count": 0,
+        }
+
+    buffer = env._stairs_curriculum_buffer
+
+    # Get current tracking error from command metrics
+    error_xy = command.metrics.get("error_pos_xy", torch.zeros(env.num_envs, device=env.device))
+    mean_error = float(error_xy.mean().item())
+
+    # Estimate success rate from terminations (not terminated = success)
+    terminated = env.termination_manager.terminated
+    success_rate = float((~terminated).float().mean().item())
+
+    # Update rolling buffer
+    idx = buffer["idx"]
+    buffer["error_xy"][idx] = mean_error
+    buffer["success"][idx] = success_rate
+    buffer["idx"] = (idx + 1) % window_size
+    buffer["count"] = min(buffer["count"] + 1, window_size)
+
+    # Only evaluate after buffer is sufficiently filled
+    if buffer["count"] < window_size // 2:
+        cur_height = float(getattr(stairs_cfg, "step_height", initial_step_height))
+        return {"step_height": cur_height}
+
+    # Compute rolling averages
+    valid_count = buffer["count"]
+    rolling_error = float(buffer["error_xy"][:valid_count].mean().item())
+    rolling_success = float(buffer["success"][:valid_count].mean().item())
+
+    # Get current step height
+    cur_height = float(getattr(stairs_cfg, "step_height", initial_step_height))
+    cur_height = max(cur_height, initial_step_height)
+
+    new_height = cur_height
+
+    # Check progression conditions
+    if rolling_error < error_threshold and rolling_success > success_rate_threshold:
+        new_height = min(final_step_height, cur_height + step_height_increment)
+
+        if abs(new_height - cur_height) > 1e-6:
+            stairs_cfg.step_height = new_height
+            # Reset buffer after progression to avoid immediate re-triggering
+            buffer["count"] = 0
+            buffer["idx"] = 0
+            print(
+                f"[Stairs Curriculum] step_height updated: {new_height:.3f}m "
+                f"(error={rolling_error:.3f}m, success={rolling_success:.2f})"
+            )
+
+    return {"step_height": new_height}
 # """Curriculum learning functions for path tracking tasks."""
 
 # from __future__ import annotations

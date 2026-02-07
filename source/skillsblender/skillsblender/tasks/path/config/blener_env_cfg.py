@@ -187,3 +187,14 @@ class BlenerPathEnvCfg(PathEnvCfg):
 
         # Termination: more lenient for complex terrain
         self.terminations.bad_orientation.params["limit_angle"] = 1.2  # ~69 degrees
+
+        # Enable skill-conditioned Z tracking rewards
+        self.rewards.track_z_walk.weight = 1.0
+        self.rewards.track_z_jump.weight = 3.0
+        self.rewards.track_z_stairs.weight = 2.0
+
+        # Enable preparation reward for upcoming terrain changes
+        self.rewards.preparation_reward.weight = 1.5
+
+        # Enable enhanced terrain stumble penalty
+        self.rewards.feet_stumble_terrain.weight = -3.0

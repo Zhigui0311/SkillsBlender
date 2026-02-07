@@ -471,3 +471,149 @@ def feet_height_body(
     reward = torch.where((distance < dis_threshold) & (heading_error < heading_threshold), 0.0, reward)
     reward *= _gravity_gate(env)
     return reward
+
+
+# ==============================================================================
+# 4) Skill-Conditioned Z-Axis Tracking Rewards
+# ==============================================================================
+
+def track_path_pos_z_walk_exp(
+    env: ManagerBasedRLEnv,
+    std: float = 0.25,
+    command_name: str = "path_tracking",
+) -> torch.Tensor:
+    """Track Z position during walk phase with relaxed tolerance.
+
+    Walk phase allows more Z deviation since the robot is on flat terrain.
+    """
+    command = env.command_manager.get_term(command_name)
+    err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
+    reward = torch.exp(-torch.square(err) / (std**2))
+
+    # Apply skill mask - only reward during walk phase
+    mask = skill_phase_mask(env, command_name, "walk")
+    return torch.where(mask, reward, torch.zeros_like(reward))
+
+
+def track_path_pos_z_jump_exp(
+    env: ManagerBasedRLEnv,
+    std: float = 0.15,
+    command_name: str = "path_tracking",
+) -> torch.Tensor:
+    """Track Z position during jump phase with strict tolerance.
+
+    Jump phase requires precise height control for clearing obstacles.
+    """
+    command = env.command_manager.get_term(command_name)
+    err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
+    reward = torch.exp(-torch.square(err) / (std**2))
+
+    # Apply skill mask - only reward during jump phase
+    mask = skill_phase_mask(env, command_name, "jump")
+    return torch.where(mask, reward, torch.zeros_like(reward))
+
+
+def track_path_pos_z_stairs_exp(
+    env: ManagerBasedRLEnv,
+    std: float = 0.10,
+    command_name: str = "path_tracking",
+) -> torch.Tensor:
+    """Track Z position during stairs phase with strictest tolerance.
+
+    Stairs phase requires very precise height tracking for step placement.
+    """
+    command = env.command_manager.get_term(command_name)
+    err = command.metrics.get("error_pos_z", torch.zeros(env.num_envs, device=env.device))
+    reward = torch.exp(-torch.square(err) / (std**2))
+
+    # Apply skill mask - only reward during stairs_up or stairs_down phase
+    mask_up = skill_phase_mask(env, command_name, "stairs_up")
+    mask_down = skill_phase_mask(env, command_name, "stairs_down")
+    mask = mask_up | mask_down
+    return torch.where(mask, reward, torch.zeros_like(reward))
+
+
+# ==============================================================================
+# 5) Preparation Reward for Upcoming Terrain Changes
+# ==============================================================================
+
+def preparation_reward_height_jump(
+    env: ManagerBasedRLEnv,
+    command_name: str = "path_tracking",
+    scan_dist: float = 1.0,
+    z_threshold: float = 0.10,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward upward CoM velocity when approaching a height jump.
+
+    Scans ahead on the path for significant Z changes and rewards
+    preparatory upward motion before the jump.
+    """
+    command: SegmentPathCommand = env.command_manager.get_term(command_name)
+    asset: RigidObject = env.scene[asset_cfg.name]
+
+    N = env.num_envs
+    device = env.device
+
+    # Get current waypoint index and path
+    cur_idx = command.current_waypoints_index
+    W = command.num_waypoints
+
+    # Scan ahead for height changes
+    scan_points = min(int(scan_dist / 0.1), W - 1)  # Assume ~0.1m waypoint spacing
+    max_z_ahead = torch.zeros(N, device=device)
+
+    b = torch.arange(N, device=device)
+    cur_z = command.pos_path_w[b, cur_idx, 2]
+
+    for i in range(1, scan_points + 1):
+        look_idx = torch.clamp(cur_idx + i, max=W - 1)
+        look_z = command.pos_path_w[b, look_idx, 2]
+        z_diff = look_z - cur_z
+        max_z_ahead = torch.maximum(max_z_ahead, z_diff)
+
+    # Check if there's a significant height jump ahead
+    jump_ahead = max_z_ahead > z_threshold
+
+    # Get vertical velocity
+    vel_z = asset.data.root_lin_vel_w[:, 2]
+
+    # Reward upward velocity when jump is detected ahead
+    reward = torch.clamp(vel_z, min=0.0)  # Only reward positive (upward) velocity
+    reward = torch.where(jump_ahead, reward, torch.zeros_like(reward))
+
+    return reward
+
+
+# ==============================================================================
+# 6) Enhanced Feet Stumble Penalty for Terrain Traversal
+# ==============================================================================
+
+def feet_stumble_terrain(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    command_name: str = "path_tracking",
+    terrain_multiplier: float = 2.0,
+) -> torch.Tensor:
+    """Enhanced feet stumble penalty during non-walk terrain phases.
+
+    Applies a higher penalty multiplier when the robot is traversing
+    complex terrain (stairs, jump, climb, platform) to encourage
+    more careful foot placement.
+    """
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    forces_z = torch.abs(contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2])
+    forces_xy = torch.linalg.norm(contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :2], dim=2)
+
+    # Base stumble detection
+    stumble = torch.any(forces_xy > 4 * forces_z, dim=1).float()
+    stumble *= _gravity_gate(env)
+
+    # Check if in non-walk phase (terrain traversal)
+    walk_mask = skill_phase_mask(env, command_name, "walk")
+    terrain_mask = ~walk_mask  # Non-walk phases
+
+    # Apply higher penalty during terrain traversal
+    penalty = torch.where(terrain_mask, stumble * terrain_multiplier, stumble)
+
+    return penalty

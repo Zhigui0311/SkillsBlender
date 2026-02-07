@@ -123,7 +123,7 @@ class StairsParams:
 @configclass
 class CrouchParams:
     # planned constraint (not sensing)
-    crouch_len: float = 2.0
+    crouch_len: float = 0.4
     base_height_ref: float = 0.24
     start_dist_range: Tuple[float, float] = (1.0, 2.0)
 
@@ -232,6 +232,11 @@ class PathRanges:
 
     # normalization / clipping for meta distances
     dist_clip: float = 5.0
+    # Independent z normalization range (meters), more sensitive than dist_clip for height tracking
+    z_clip: float = 0.5
+
+    # Transition blending window (seconds); 0 disables blending
+    transition_window_s: float = 0.0
     
 
 @configclass

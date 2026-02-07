@@ -6,8 +6,8 @@ from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.utils import configclass
 import skillsblender.tasks.path.mdp as mdp
 
-_CROUCH_ROOF_INIT_H = 0.40
-_CROUCH_ROOF_FINAL_H = 0.34
+_CROUCH_ROOF_INIT_H = 0.42
+_CROUCH_ROOF_FINAL_H = 0.36
 _CROUCH_ROOF_THICKNESS = 0.10
 _CROUCH_CLEARANCE = 0.04
 
@@ -101,9 +101,10 @@ class Go2CrouchCurEnvCfg(Go2CrouchEnvCfg):
 
         # Set easier initial roof height for curriculum start
         if hasattr(self.scene, "crouch_roof"):
-            self.scene.crouch_roof.init_state.pos = (1.8, 0.0, _CROUCH_ROOF_INIT_H)
-        if hasattr(self.scene, "crouch_roof_tail"):
-            self.scene.crouch_roof_tail.init_state.pos = (3.0, 0.0, _CROUCH_ROOF_INIT_H)
+            self.scene.crouch_roof.init_state.pos = (1.15, 0.0, _CROUCH_ROOF_INIT_H)
+        # Tail roof removed - using single 0.4m obstacle
+        # if hasattr(self.scene, "crouch_roof_tail"):
+        #     self.scene.crouch_roof_tail.init_state.pos = (3.0, 0.0, _CROUCH_ROOF_INIT_H)
 
         target_h = _crouch_target_height(_CROUCH_ROOF_INIT_H)
         self.commands.path_tracking.crouch_params.base_height_ref = target_h

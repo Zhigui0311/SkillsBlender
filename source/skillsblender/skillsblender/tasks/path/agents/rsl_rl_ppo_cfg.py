@@ -334,3 +334,162 @@ class GO2ClimbPPOCfg(PathRslRlPPOCfg):
             data_augmentation_func=GO2.compute_symmetric_states
         )
     )
+
+
+@configclass
+class GO2BlenderCNNPPOCfg(PathRslRlPPOCfg):
+    """Go2 multi-skill blender PPO configuration with CNN path encoder.
+
+    This configuration uses a 1D-CNN to encode path slice observations,
+    which helps capture spatial patterns in the path for better multi-skill
+    terrain traversal.
+    """
+    num_steps_per_env = 64
+    max_iterations = 5000
+    save_interval = 200
+    experiment_name = "go2-path-blener-cnn"
+    policy = RslRlPpoActorCriticCfg(
+        class_name="ActorCriticWithPathEncoder",
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
+
+
+# ==============================================================================
+# Parkour Training Configurations
+# ==============================================================================
+
+@configclass
+class GO2ParkourDirectPPOCfg(PathRslRlPPOCfg):
+    """Go2 parkour direct training PPO configuration.
+
+    For training a unified multi-skill policy from scratch.
+    Uses longer rollouts and more iterations for complex terrain.
+    """
+    num_steps_per_env = 64
+    max_iterations = 8000
+    save_interval = 200
+    experiment_name = "go2-parkour-direct"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
+
+
+@configclass
+class GO2ParkourDistillPPOCfg(PathRslRlPPOCfg):
+    """Go2 parkour distillation training PPO configuration.
+
+    For training with knowledge distillation from expert policies.
+    Uses smaller learning rate for stable distillation.
+    """
+    num_steps_per_env = 48
+    max_iterations = 5000
+    save_interval = 200
+    experiment_name = "go2-parkour-distill"
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=0.8,  # Lower noise for distillation
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,  # Lower entropy for distillation
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=5.0e-4,  # Lower LR for stable distillation
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.008,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )
+
+
+@configclass
+class GO2ParkourCNNPPOCfg(PathRslRlPPOCfg):
+    """Go2 parkour with CNN path encoder PPO configuration."""
+    num_steps_per_env = 64
+    max_iterations = 8000
+    save_interval = 200
+    experiment_name = "go2-parkour-cnn"
+    policy = RslRlPpoActorCriticCfg(
+        class_name="ActorCriticWithPathEncoder",
+        init_noise_std=1.0,
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=16,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=GO2.compute_symmetric_states
+        )
+    )

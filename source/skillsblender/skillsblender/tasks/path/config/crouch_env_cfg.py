@@ -39,15 +39,15 @@ CROUCH_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
 class MyCrouchSceneCfg(MySceneCfg):
     """Crouch scene configuration with low obstacles."""
 
-    # Main low roof: long and wide, so the robot must crouch instead of bypassing it.
+    # Main low roof: short obstacle (0.4m) that robot must crouch under.
     crouch_roof = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/CrouchRoof",
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(1.8, 0.0, 0.34),  # center height; bottom ~0.29 for 0.10 thickness
+            pos=(1.15, 0.0, 0.34),  # center height; bottom ~0.29 for 0.10 thickness
             rot=(1.0, 0.0, 0.0, 0.0),
         ),
         spawn=sim_utils.CuboidCfg(
-            size=(2.6, 1.6, 0.10),
+            size=(0.4, 1.6, 0.10),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
                 disable_gravity=True,
@@ -56,22 +56,22 @@ class MyCrouchSceneCfg(MySceneCfg):
         ),
     )
 
-    # Tail roof extends low-clearance section so policy must hold crouch for longer.
-    crouch_roof_tail = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/CrouchRoofTail",
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(3.0, 0.0, 0.34),
-            rot=(1.0, 0.0, 0.0, 0.0),
-        ),
-        spawn=sim_utils.CuboidCfg(
-            size=(1.2, 1.4, 0.10),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                kinematic_enabled=True,
-                disable_gravity=True,
-            ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-        ),
-    )
+    # Tail roof removed - using single 0.4m obstacle instead of extended section
+    # crouch_roof_tail = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/CrouchRoofTail",
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(3.0, 0.0, 0.34),
+    #         rot=(1.0, 0.0, 0.0, 0.0),
+    #     ),
+    #     spawn=sim_utils.CuboidCfg(
+    #         size=(1.2, 1.4, 0.10),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=True,
+    #             disable_gravity=True,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #     ),
+    # )
 
     def __post_init__(self):
         super().__post_init__()
@@ -99,9 +99,9 @@ class CrouchPathEnvCfg(PathEnvCfg):
         # Crouch-specific command configuration
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24
-        self.commands.path_tracking.ranges.default_path_len = 4.2
-        self.commands.path_tracking.crouch_params.start_dist_range = (0.8, 1.1)
-        self.commands.path_tracking.crouch_params.crouch_len = 2.4
+        self.commands.path_tracking.ranges.default_path_len = 3.0
+        self.commands.path_tracking.crouch_params.start_dist_range = (0.8, 1.2)
+        self.commands.path_tracking.crouch_params.crouch_len = 0.4
         self.commands.path_tracking.crouch_params.base_height_ref = 0.24
 
         # Keep starts aligned with the roof corridor so every episode practices crouching.

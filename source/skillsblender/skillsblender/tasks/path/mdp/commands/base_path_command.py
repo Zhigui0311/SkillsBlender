@@ -494,9 +494,10 @@ class SegmentPathCommand(CommandTerm):
         dyaw = wrap_to_pi(yaws - self._planned_yaw[:, None])
 
         scale = float(self.cfg.ranges.dist_clip)
+        z_scale = float(getattr(self.cfg.ranges, 'z_clip', scale))  # backward compatible
         x_fwd = x_fwd / scale
         y_lat = y_lat / scale
-        z_rel = z_rel / scale
+        z_rel = z_rel / z_scale  # independent z scaling
         dyaw = dyaw / torch.pi
 
         self.obs_slices = torch.stack([x_fwd, y_lat, z_rel, dyaw], dim=-1)
@@ -514,6 +515,53 @@ class SegmentPathCommand(CommandTerm):
         cur_s1 = self._seg_s1[b, cur_idx]
         cur_skill = self._seg_skill[b, cur_idx]
         cur_params = self._seg_params[b, cur_idx, :] if (self.has_seg_params and self._seg_params is not None) else None
+
+        # Transition blending: smooth parameter interpolation near segment boundaries
+        transition_window = float(getattr(self.cfg.ranges, 'transition_window_s', 0.0))
+        if transition_window > 0.0 and cur_params is not None:
+            # Get next segment info for blending
+            next_idx = torch.clamp(cur_idx + 1, max=self.max_segments - 1)
+            num = self._num_segs.clamp(min=1)
+            last = (num - 1).clamp(min=0)
+            is_last = cur_idx >= last
+            next_idx_blend = torch.where(is_last, cur_idx, next_idx)
+            next_params_blend = self._seg_params[b, next_idx_blend, :]
+
+            # Get previous segment info for fade-in
+            prev_idx = torch.clamp(cur_idx - 1, min=0)
+            is_first = cur_idx == 0
+            prev_idx_blend = torch.where(is_first, cur_idx, prev_idx)
+            prev_params_blend = self._seg_params[b, prev_idx_blend, :]
+            prev_s1 = self._seg_s1[b, prev_idx_blend]
+
+            # Distance to current segment end (fade-out to next)
+            dist_to_end = cur_s1 - s
+            # Distance from current segment start (fade-in from prev)
+            dist_from_start = s - cur_s0
+
+            # Compute blend weights
+            # Fade-out: blend cur_params -> next_params as we approach segment end
+            fade_out_alpha = torch.clamp(dist_to_end / transition_window, 0.0, 1.0)
+            # Fade-in: blend prev_params -> cur_params as we leave segment start
+            fade_in_alpha = torch.clamp(dist_from_start / transition_window, 0.0, 1.0)
+
+            # Apply fade-out blending (near segment end)
+            in_fade_out = (dist_to_end < transition_window) & (~is_last)
+            blended_params = torch.where(
+                in_fade_out.unsqueeze(-1),
+                fade_out_alpha.unsqueeze(-1) * cur_params + (1.0 - fade_out_alpha.unsqueeze(-1)) * next_params_blend,
+                cur_params
+            )
+
+            # Apply fade-in blending (near segment start)
+            in_fade_in = (dist_from_start < transition_window) & (~is_first)
+            blended_params = torch.where(
+                in_fade_in.unsqueeze(-1),
+                fade_in_alpha.unsqueeze(-1) * blended_params + (1.0 - fade_in_alpha.unsqueeze(-1)) * prev_params_blend,
+                blended_params
+            )
+
+            cur_params = blended_params
 
         cur_den = (cur_s1 - cur_s0).clamp(min=1e-3)
         cur_prog = ((s - cur_s0) / cur_den).clamp(0.0, 1.0)

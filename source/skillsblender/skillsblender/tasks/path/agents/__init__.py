@@ -2,3 +2,5 @@
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
+
+from .path_encoder_actor_critic import ActorCriticWithPathEncoder, PathEncoderCNN
