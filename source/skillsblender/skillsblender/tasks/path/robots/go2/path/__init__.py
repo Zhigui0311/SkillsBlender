@@ -213,28 +213,10 @@ gym.register(
 )
 
 gym.register(
-    id="go2-path-crouch-curriculum-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.terrain.go2_crouch_cfg:Go2CrouchCurEnvCfg",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2CrouchPPOCfg",
-    },
-)
-
-gym.register(
     id="go2-path-crouch-v0-play",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     kwargs={
         "env_cfg_entry_point": f"{__name__}.terrain.go2_crouch_cfg:Go2CrouchEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2CrouchPPOCfg",
-    },
-)
-
-gym.register(
-    id="go2-path-crouch-curriculum-v0-play",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.terrain.go2_crouch_cfg:Go2CrouchCurEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2CrouchPPOCfg",
     },
 )

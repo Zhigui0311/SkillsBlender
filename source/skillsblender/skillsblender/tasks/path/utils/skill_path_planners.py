@@ -750,12 +750,12 @@ class CrouchPathPlanner(SkillPathPlanner):
             obs_height = (z_profile.max(dim=1).values - z_profile.min(dim=1).values).clamp(min=0.0)
             target_base_h = torch.clamp(
                 start_pos[:, 2] - obs_height,
-                min=0.12,
+                min=torch.tensor(0.12, device=start_pos.device),
                 max=start_pos[:, 2],
             )
         else:
             # Virtual: base height target follows the hallucinated crouch depth.
-            target_base_h = torch.clamp(start_pos[:, 2] - depth, min=0.12, max=start_pos[:, 2])
+            target_base_h = torch.clamp(start_pos[:, 2] - depth, min=torch.tensor(0.12, device=start_pos.device), max=start_pos[:, 2])
 
         # 4) 构建 segment 参数（低姿态）
         segment_params = self._make_segment_params(N)
