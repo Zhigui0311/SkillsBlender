@@ -457,7 +457,7 @@ class RewardsCfg:
     )
     flat_orientation = RewTerm(func=mdp.flat_orientation_l2, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
     base_lin_vel_z = RewTerm(func=mdp.lin_vel_z_l2, weight=0.0)
-    base_ang_vel_xy = RewTerm(func=mdp.ang_vel_xy_l2, weight=0.0)
+    base_ang_vel_xy = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.01)  # Penalize excessive rotation for stability
     base_acc = RewTerm(func=mdp.base_acc, weight=0.0, params={"asset_cfg": SceneEntityCfg("robot")})
     
     # Joint penalties
@@ -648,6 +648,16 @@ class RewardsCfg:
         func=mdp.feet_stumble,
         weight=0.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
+    )
+
+    feet_clearance = RewTerm(
+        func=mdp.feet_clearance,
+        weight=1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+            "min_clearance": 0.08,
+        },
     )
 
     # --- Skill-conditioned Z tracking rewards (default disabled) ---

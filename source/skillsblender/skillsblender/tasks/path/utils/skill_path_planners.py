@@ -364,30 +364,47 @@ class JumpPathPlanner(SkillPathPlanner):
         )
 
         # 5) 在跳跃段添加抛物线轨迹（起落点对齐地形高度）
-        den = (jump_s1.unsqueeze(-1) - jump_s0.unsqueeze(-1)).clamp(min=1e-3)
-        t = ((dist_at_wp - jump_s0.unsqueeze(-1)) / den).clamp(0.0, 1.0)
-
-        # Sample takeoff/landing heights from traced terrain.
+        # Sample takeoff/landing heights from traced terrain at gap edges (not inside gap)
         z0 = torch.zeros(N, device=device)
         z1 = torch.zeros(N, device=device)
         for bi in range(N):
-            idx0 = torch.argmin(torch.abs(dist_at_wp[bi] - jump_s0[bi]))
-            idx1 = torch.argmin(torch.abs(dist_at_wp[bi] - jump_s1[bi]))
+            # Find takeoff point (before gap starts)
+            idx0 = torch.argmin(torch.abs(dist_at_wp[bi] - gap_s0[bi]))
+            # Find landing point (after gap ends)
+            idx1 = torch.argmin(torch.abs(dist_at_wp[bi] - gap_s1[bi]))
             z0[bi] = z_profile[bi, idx0]
             z1[bi] = z_profile[bi, idx1]
+
+        # Create parabolic trajectory over the gap
+        den = (gap_s1.unsqueeze(-1) - gap_s0.unsqueeze(-1)).clamp(min=1e-3)
+        t = ((dist_at_wp - gap_s0.unsqueeze(-1)) / den).clamp(0.0, 1.0)
 
         z_lin = z0.unsqueeze(-1) + (z1 - z0).unsqueeze(-1) * t
         arc = jump_height.unsqueeze(-1) * 4.0 * t * (1.0 - t)
         z_jump = z_lin + arc
 
-        mask = (dist_at_wp >= jump_s0.unsqueeze(-1)) & (dist_at_wp <= jump_s1.unsqueeze(-1)) & has_gap.unsqueeze(-1)
+        # Apply parabolic trajectory only over the gap region
+        mask = (dist_at_wp >= gap_s0.unsqueeze(-1)) & (dist_at_wp <= gap_s1.unsqueeze(-1)) & has_gap.unsqueeze(-1)
         waypoints[..., 2] = torch.where(mask, z_jump, z_profile)
 
         # 6) 构建 segment 参数（只输出标量参数，不暴露扫描原始数据）
         segment_params = self._make_segment_params(N)
-        self._set_segment_param(segment_params, "v_ref", 1.45)
+
+        # 在gap前加速：根据距离gap的远近设置速度
+        # 助跑阶段：1.0 -> 1.8 m/s 加速
+        # gap阶段：保持1.8 m/s
+        # 着陆阶段：1.8 -> 1.0 m/s 减速
+        v_approach = 1.0  # 初始速度
+        v_jump = 1.8      # 跳跃速度（提高到1.8）
+        v_land = 1.0      # 着陆后速度
+
+        # 计算速度曲线：在jump_s0前加速，gap期间保持，jump_s1后减速
+        # 这里设置一个代表性的速度值（实际会在奖励中动态调整）
+        self._set_segment_param(segment_params, "v_ref", v_jump)
         self._set_segment_param(segment_params, "jump_height_ref", jump_height)
-        # Store gap width in misc for downstream use (if any).
+        # Store gap info for reward shaping
+        self._set_segment_param(segment_params, "gap_start", gap_s0)
+        self._set_segment_param(segment_params, "gap_end", gap_s1)
         self._set_segment_param(segment_params, "misc", gap_w)
 
         return SegmentPlan(

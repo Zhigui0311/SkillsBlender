@@ -579,6 +579,21 @@ class RewardsCfg:
         }
     )
 
+    # 起跳速度奖励：鼓励在gap边缘达到合适的起跳速度（带安全范围）
+    takeoff_velocity_reward = RewTerm(
+        func=mdp.takeoff_velocity_reward,
+        weight=0.0,
+        params={
+            "command_name": "path_tracking",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "target_vertical_velocity": 0.6,  # 目标向上速度 0.6 m/s
+            "vertical_tolerance": 0.3,         # 容差 ±0.3 m/s
+            "target_forward_velocity": 1.5,    # 目标前向速度 1.5 m/s
+            "forward_tolerance": 0.3,          # 容差 ±0.3 m/s
+            "takeoff_window": 0.5,             # 起跳窗口 0.5m
+        }
+    )
+
 
 
 @configclass

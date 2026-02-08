@@ -27,12 +27,18 @@ class Go2JumpEnvCfg(JumpPathEnvCfg):
         #task
         self.rewards.jump_height_tracking.weight = 6.0
         self.rewards.jump_landing_stability.weight = 2.5
-        self.rewards.jump_forward_velocity.weight = 3.0
+        self.rewards.jump_forward_velocity.weight = 4.0  # 提高从3.0到4.0
+        self.rewards.jump_forward_velocity.params["target_velocity"] = 1.6  # 提高从1.5到1.6
         self.rewards.jump_clearance.weight = 4.0
         self.rewards.jump_air_time.weight = 2.0
-        self.rewards.approach_momentum_reward.weight = 2.0
-        self.rewards.approach_momentum_reward.params["min_velocity"] = 1.1
-        self.rewards.approach_momentum_reward.params["approach_distance"] = 1.2
+        self.rewards.approach_momentum_reward.weight = 3.0  # 提高从2.0到3.0
+        self.rewards.approach_momentum_reward.params["min_velocity"] = 1.2  # 提高从1.1到1.2
+        self.rewards.approach_momentum_reward.params["approach_distance"] = 1.5  # 增加从1.2到1.5
+
+        # 新增：起跳速度奖励（带安全范围）
+        self.rewards.takeoff_velocity_reward.weight = 2.5
+        self.rewards.takeoff_velocity_reward.params["target_vertical_velocity"] = 0.6
+        self.rewards.takeoff_velocity_reward.params["target_forward_velocity"] = 1.5
         
         # emphasize tracking the planned trajectory
         self.rewards.track_xy.weight = 8.0

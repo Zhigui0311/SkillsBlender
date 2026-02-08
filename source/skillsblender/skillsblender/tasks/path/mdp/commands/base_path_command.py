@@ -676,27 +676,35 @@ class SegmentPathCommand(CommandTerm):
                 self.robot_heading_visualizer.set_visibility(False)
 
     def _debug_vis_callback(self, event):
+        # Visualize path waypoints as green spheres
         self.path_waypoints_visualizer.visualize(
             translations=self.pos_path_w.reshape(-1, 3),
         )
-        if hasattr(self, "path_heading_visualizer"):
-            yaw = self.heading_path_w[..., 0].reshape(-1)
-            self.path_heading_visualizer.visualize(
-                translations=self.pos_path_w.reshape(-1, 3),
-                orientations=self._yaw_to_quat(yaw),
-            )
         self.goal_visualizer.visualize(
             translations=self.pos_path_w[torch.arange(self.num_envs), -1],
         )
         self.start_visualizer.visualize(
             translations=self.pos_path_w[torch.arange(self.num_envs), 0],
         )
+
+        # Visualize two arrows on robot: actual heading (blue) and desired heading (green)
+        robot_pos = self.robot.data.root_pos_w[:, :3]
+
+        # Blue arrow: robot's actual heading
         if hasattr(self, "robot_heading_visualizer"):
-            robot_pos = self.robot.data.root_pos_w[:, :3]
             _, _, robot_yaw = euler_xyz_from_quat(self.robot.data.root_quat_w)
             self.robot_heading_visualizer.visualize(
                 translations=robot_pos,
                 orientations=self._yaw_to_quat(robot_yaw),
+            )
+
+        # Green arrow: desired heading from path command
+        if hasattr(self, "path_heading_visualizer"):
+            b = torch.arange(self.num_envs, device=self.device)
+            desired_yaw = self.heading_path_w[b, self.current_waypoints_index, 0]
+            self.path_heading_visualizer.visualize(
+                translations=robot_pos,
+                orientations=self._yaw_to_quat(desired_yaw),
             )
 
     # ----------------- waypoint progression + metrics -----------------

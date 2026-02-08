@@ -54,12 +54,12 @@ _ROBOT_HEADING_USD = os.getenv("SKILLSBLENDER_ROBOT_ARROW_USD", _PATH_HEADING_US
 
 PATH_HEADING_MARKER_CFG = VisualizationMarkersCfg(
     markers={
-        "path_heading": _heading_marker_cfg((0.0, 0.4, 1.0), usd_path=_PATH_HEADING_USD),  # blue
+        "path_heading": _heading_marker_cfg((0.0, 1.0, 0.0), usd_path=_PATH_HEADING_USD),  # green (desired heading)
     }
 )
 
 ROBOT_HEADING_MARKER_CFG = VisualizationMarkersCfg(
     markers={
-        "robot_heading": _heading_marker_cfg((0.0, 1.0, 0.0), usd_path=_ROBOT_HEADING_USD),  # green
+        "robot_heading": _heading_marker_cfg((0.0, 0.4, 1.0), usd_path=_ROBOT_HEADING_USD),  # blue (actual heading)
     }
 )

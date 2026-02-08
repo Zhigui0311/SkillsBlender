@@ -131,6 +131,14 @@ UNITREE_GO2_CFG = UnitreeArticulationCfg(
     # fmt: on
 )
 
+# Parkour-optimized configuration with higher PD gains
+# Set USE_PARKOUR_GAINS=False to use official gains for real robot deployment
+USE_PARKOUR_GAINS = True
+
+if USE_PARKOUR_GAINS:
+    UNITREE_GO2_CFG.actuators["GO2HV"].stiffness = 28.0
+    UNITREE_GO2_CFG.actuators["GO2HV"].damping = 0.6
+
 UNITREE_GO2W_CFG = UnitreeArticulationCfg(
     # spawn=UnitreeUrdfFileCfg(
     #     asset_path=f"{UNITREE_ROS_DIR}/robots/go2w_description/urdf/go2w_description.urdf",

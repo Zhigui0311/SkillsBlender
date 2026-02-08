@@ -339,3 +339,149 @@ def consistency_reward(
     reward = maintains_velocity.float()
 
     return reward
+
+
+def takeoff_velocity_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    target_vertical_velocity: float = 0.6,
+    vertical_tolerance: float = 0.3,
+    target_forward_velocity: float = 1.5,
+    forward_tolerance: float = 0.3,
+    takeoff_window: float = 0.5,
+) -> torch.Tensor:
+    """
+    起跳速度奖励（带安全范围）。
+
+    鼓励机器人在gap边缘达到合适的起跳速度：
+    - 垂直速度：目标0.6 m/s（范围0.3-0.9）
+    - 前向速度：目标1.5 m/s（范围1.2-1.8）
+
+    使用高斯奖励函数，在目标值附近奖励最高，偏离越多奖励越低。
+
+    Args:
+        target_vertical_velocity: 目标向上速度 (m/s)
+        vertical_tolerance: 垂直速度容差 (m/s)
+        target_forward_velocity: 目标前向速度 (m/s)
+        forward_tolerance: 前向速度容差 (m/s)
+        takeoff_window: 起跳窗口距离 (m)，在gap前这个距离内检测起跳
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    command = env.command_manager.get_term(command_name)
+
+    # 获取速度
+    vertical_vel = asset.data.root_lin_vel_w[:, 2]  # 世界坐标系Z轴速度
+    forward_vel = asset.data.root_lin_vel_b[:, 0]   # 机体坐标系前向速度
+
+    # 判断是否在起跳窗口内（gap前0.5m范围）
+    in_takeoff_window = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    if hasattr(command, "_seg_s0") and hasattr(command, "_seg_skill_id"):
+        # 获取当前位置
+        robot_pos = asset.data.root_pos_w[:, :3]
+
+        # 找到jump技能段
+        for env_idx in range(env.num_envs):
+            # 查找jump段（skill_id=1）
+            jump_segs = (command._seg_skill_id[env_idx] == 1)
+            if torch.any(jump_segs):
+                # 获取第一个jump段的起点
+                jump_seg_idx = torch.nonzero(jump_segs, as_tuple=False)[0].item()
+                gap_start = command._seg_s0[env_idx, jump_seg_idx].item()
+
+                # 计算沿路径的距离
+                path_start = command.pos_path_w[env_idx, 0]
+                path_dir = command._planned_forward_dir[env_idx]
+                robot_rel = robot_pos[env_idx, :2] - path_start[:2]
+                dist_along_path = torch.dot(robot_rel, path_dir[:2])
+
+                # 检查是否在起跳窗口内（gap前takeoff_window米）
+                dist_to_gap = gap_start - dist_along_path
+                in_takeoff_window[env_idx] = (dist_to_gap >= 0.0) & (dist_to_gap <= takeoff_window)
+
+    # 计算高斯奖励：在目标值附近奖励最高
+    vertical_error = (vertical_vel - target_vertical_velocity) / vertical_tolerance
+    vertical_reward = torch.exp(-torch.square(vertical_error))
+
+    forward_error = (forward_vel - target_forward_velocity) / forward_tolerance
+    forward_reward = torch.exp(-torch.square(forward_error))
+
+    # 综合奖励：只在起跳窗口内给奖励
+    reward = in_takeoff_window.float() * vertical_reward * forward_reward
+
+    return reward
+
+
+def feet_edge_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "path_tracking",
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_foot"),
+    edge_distance_threshold: float = 0.3,
+    reward_scale: float = 1.0,
+) -> torch.Tensor:
+    """
+    Blind jump edge detection reward using path_slice data.
+
+    Encourages the robot to detect gap edges and lift feet appropriately
+    before jumping, even without direct visual feedback. Uses the path_slice
+    observation to detect upcoming terrain changes.
+
+    This reward helps the robot learn to:
+    1. Detect gap edges from path_slice height changes
+    2. Lift feet preemptively when approaching a gap
+    3. Time the jump takeoff based on terrain features
+
+    Args:
+        command_name: Name of the path tracking command
+        sensor_cfg: Contact sensor configuration for feet
+        edge_distance_threshold: Distance ahead to check for edges (m)
+        reward_scale: Scaling factor for the reward
+
+    Returns:
+        Reward tensor for each environment
+    """
+    command = env.command_manager.get_term(command_name)
+    contact_sensor = env.scene.sensors[sensor_cfg.name]
+
+    # Resolve body_ids if needed
+    if sensor_cfg.body_ids is None:
+        sensor_cfg.resolve(env.scene)
+
+    # Get path_slice observation if available
+    if not hasattr(command, "path_slice") or command.path_slice is None:
+        return torch.zeros(env.num_envs, device=env.device)
+
+    path_slice = command.path_slice  # Shape: (N, num_points, 3) - XYZ positions
+
+    # Detect edges in path_slice by looking for height discontinuities
+    # Compare consecutive points to find sudden height drops (gaps)
+    height_diffs = path_slice[:, 1:, 2] - path_slice[:, :-1, 2]  # (N, num_points-1)
+
+    # Find significant height drops (potential gap edges)
+    # Negative values indicate drops
+    edge_detected = height_diffs < -0.15  # 15cm drop threshold
+
+    # Find the closest edge within threshold distance
+    # Calculate distance along path for each point
+    xy_diffs = path_slice[:, 1:, :2] - path_slice[:, :-1, :2]  # (N, num_points-1, 2)
+    distances = torch.norm(xy_diffs, dim=-1)  # (N, num_points-1)
+    cumulative_dist = torch.cumsum(distances, dim=1)  # (N, num_points-1)
+
+    # Check if edge is within threshold distance
+    edge_nearby = edge_detected & (cumulative_dist < edge_distance_threshold)
+    has_nearby_edge = torch.any(edge_nearby, dim=1)  # (N,)
+
+    # Check if feet are lifted (not in contact)
+    contact_forces = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids]  # (N, num_feet, 3)
+    feet_in_contact = torch.norm(contact_forces, dim=-1) > 1.0  # (N, num_feet)
+    any_foot_lifted = ~torch.all(feet_in_contact, dim=1)  # (N,)
+
+    # Reward: lift feet when edge is nearby
+    reward = (has_nearby_edge & any_foot_lifted).float() * reward_scale
+
+    # Only apply during jump approach phase if available
+    if hasattr(command, "is_in_jump_approach_phase"):
+        reward = torch.where(command.is_in_jump_approach_phase, reward, torch.zeros_like(reward))
+
+    return reward

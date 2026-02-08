@@ -82,6 +82,13 @@ class Go2CrouchEnvCfg(CrouchPathEnvCfg):
             "base", "Head_upper", "Head_lower", ".*_hip", ".*_thigh"
         ]
 
+        # 添加步态奖励（蹲伏时也需要协调的步态）
+        self.rewards.feet_air_time.weight = 0.6
+        self.rewards.feet_air_time.params["threshold"] = 0.3
+        self.rewards.feet_gait.weight = 0.8
+        self.rewards.joint_mirror.weight = -0.3
+        self.rewards.feet_slide.weight = -1.5
+
         # Command parameters
         self.commands.path_tracking.ranges.num_waypoints = 80
         self.commands.path_tracking.ranges.num_lookahead_waypoints = 24

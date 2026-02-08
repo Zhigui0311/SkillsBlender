@@ -72,12 +72,16 @@ class Go2StairsEnvCfg(StairsPathEnvCfg):
         self.rewards.joint_vel_limits.weight = -1.0
 
         # Feet rewards: high clearance for stairs
-        self.rewards.feet_air_time.weight = 0.0
+        self.rewards.feet_air_time.weight = 0.5  # 启用基础空中时间奖励
         self.rewards.feet_air_time.params["threshold"] = 0.3
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = [".*_foot"]
         self.rewards.stairs_feet_air_time_phase.weight = 3.0
         self.rewards.stairs_feet_air_time_phase.params["threshold"] = 0.3
         self.rewards.feet_slide.weight = -3.0
+
+        # 添加步态协调奖励
+        self.rewards.feet_gait.weight = 1.0
+        self.rewards.joint_mirror.weight = -0.3
 
         # Contact penalties
         self.rewards.undesired_contacts.weight = -2.0

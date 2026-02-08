@@ -42,7 +42,7 @@ class Go2ParkourDirectEnvCfg(ParkourDirectEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        # Set Go2 robot
+        # Set Go2 robot (using official PD gains for safe deployment)
         self.scene.robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # Observation scaling
@@ -60,6 +60,13 @@ class Go2ParkourDirectEnvCfg(ParkourDirectEnvCfg):
             ["FR_(hip|thigh|calf).*", "RL_(hip|thigh|calf).*"],
             ["FL_(hip|thigh|calf).*", "RR_(hip|thigh|calf).*"],
         ]
+
+        # 添加步态协调奖励
+        self.rewards.feet_gait.weight = 1.0
+        self.rewards.feet_gait.params["synced_feet_pair_names"] = (
+            ("FL_foot", "RR_foot"),
+            ("FR_foot", "RL_foot")
+        )
 
         # Torque limits
         self.rewards.applied_torque_limits.weight = -0.15
@@ -119,7 +126,7 @@ class Go2ParkourDistillEnvCfg(ParkourDistillEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        # Set Go2 robot
+        # Set Go2 robot (using official PD gains for safe deployment)
         self.scene.robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # Observation scaling

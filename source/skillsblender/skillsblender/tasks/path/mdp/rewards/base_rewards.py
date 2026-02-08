@@ -617,3 +617,65 @@ def feet_stumble_terrain(
     penalty = torch.where(terrain_mask, stumble * terrain_multiplier, stumble)
 
     return penalty
+
+
+# ==============================================================================
+# 7) Feet Clearance Reward
+# ==============================================================================
+
+def feet_clearance(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    min_clearance: float = 0.08,
+) -> torch.Tensor:
+    """
+    Feet clearance reward for Extreme Parkour.
+
+    Rewards the robot for lifting its feet high enough during swing phase
+    to clear obstacles. This encourages proper foot clearance during locomotion,
+    especially important for parkour tasks with varied terrain.
+
+    Args:
+        sensor_cfg: Contact sensor configuration for feet
+        asset_cfg: Robot asset configuration for feet bodies
+        min_clearance: Minimum clearance height during swing (m)
+
+    Returns:
+        Reward tensor for each environment
+    """
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # Resolve body_ids if needed
+    if sensor_cfg.body_ids is None:
+        sensor_cfg.resolve(env.scene)
+    if asset_cfg.body_ids is None:
+        asset_cfg.resolve(env.scene)
+
+    # Get feet positions in world frame
+    feet_pos_w = asset.data.body_pos_w[:, asset_cfg.body_ids, :]  # (N, num_feet, 3)
+    feet_height = feet_pos_w[:, :, 2]  # (N, num_feet)
+
+    # Get base height for reference
+    base_height = asset.data.root_pos_w[:, 2:3]  # (N, 1)
+
+    # Calculate relative clearance (foot height relative to base)
+    relative_clearance = feet_height - base_height  # (N, num_feet)
+
+    # Check if feet are in swing phase (not in contact)
+    contact_forces = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids]  # (N, num_feet, 3)
+    in_contact = torch.norm(contact_forces, dim=-1) > 1.0  # (N, num_feet)
+    in_swing = ~in_contact
+
+    # Reward feet that achieve minimum clearance during swing
+    has_clearance = relative_clearance > -min_clearance  # Negative because feet are below base
+    reward_per_foot = (in_swing & has_clearance).float()
+
+    # Average across all feet
+    reward = torch.mean(reward_per_foot, dim=1)
+
+    # Apply gravity gate for stability
+    reward *= _gravity_gate(env)
+
+    return reward
