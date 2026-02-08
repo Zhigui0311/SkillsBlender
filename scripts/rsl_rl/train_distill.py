@@ -6,7 +6,7 @@
 """Script to train multi-skill parkour policy with knowledge distillation.
 
 This script trains a unified student policy by distilling knowledge from
-pre-trained expert policies for each skill (walk, jump, stairs, climb, crouch).
+pre-trained expert policies for each skill (walk, jump, stairs, climb, platform, crouch).
 
 The distillation is implemented as an additional loss term that encourages
 the student policy to match the expert actions for each skill phase.
@@ -18,6 +18,7 @@ Usage:
         --jump_expert "logs/rsl_rl/go2-path-jump/*/model_*.pt" \\
         --stairs_expert "logs/rsl_rl/go2-path-stairs/*/model_*.pt" \\
         --climb_expert "logs/rsl_rl/go2-path-climb/*/model_*.pt" \\
+        --platform_expert "logs/rsl_rl/go2-path-platform/*/model_*.pt" \\
         --crouch_expert "logs/rsl_rl/go2-path-crouch/*/model_*.pt" \\
         --distill_coef 1.0
 
@@ -51,6 +52,7 @@ parser.add_argument("--walk_expert", type=str, default=None, help="Path to walk 
 parser.add_argument("--jump_expert", type=str, default=None, help="Path to jump expert checkpoint.")
 parser.add_argument("--stairs_expert", type=str, default=None, help="Path to stairs expert checkpoint.")
 parser.add_argument("--climb_expert", type=str, default=None, help="Path to climb expert checkpoint.")
+parser.add_argument("--platform_expert", type=str, default=None, help="Path to platform expert checkpoint.")
 parser.add_argument("--crouch_expert", type=str, default=None, help="Path to crouch expert checkpoint.")
 
 # Distillation parameters
@@ -258,6 +260,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         "stairs_up": resolve_checkpoint_path(args_cli.stairs_expert),
         "stairs_down": resolve_checkpoint_path(args_cli.stairs_expert),
         "climb": resolve_checkpoint_path(args_cli.climb_expert),
+        "platform": resolve_checkpoint_path(args_cli.platform_expert),
         "crouch": resolve_checkpoint_path(args_cli.crouch_expert),
     }
 

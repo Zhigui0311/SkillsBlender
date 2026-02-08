@@ -9,23 +9,16 @@ import gymnasium as gym
 # Register Gym environments.
 ##
 
+# ==============================================================================
+# Individual Skill Environments
+# ==============================================================================
 
+# ---------------------- Jump ----------------------
 gym.register(
     id="go2-path-jump-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.terrain.go2_jump_cfg:Go2JumpEnvCfg", 
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
-    },
-)
-
-# ----------------------jump---------------------------------------
-
-gym.register(
-    id="go2-path-jump-curriculum-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.terrain.go2_jump_cur_cfg:Go2JumpCurEnvCfg", 
+        "env_cfg_entry_point": f"{__name__}.terrain.go2_jump_cfg:Go2JumpEnvCfg",
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
     },
 )
@@ -39,16 +32,6 @@ gym.register(
     },
 )
 
-gym.register(
-    id="go2-path-jump-curriculum-v0-play",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.terrain.go2_jump_cur_cfg:Go2JumpCurEnvCfg_PLAY", # Ensure this uses JumpPathCommandCfg
-        "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
-    },
-)
-
-# curriculum-enabled (v1)
 gym.register(
     id="go2-path-jump-v1",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
@@ -66,11 +49,6 @@ gym.register(
         "rsl_rl_cfg_entry_point": "skillsblender.tasks.path.agents.rsl_rl_ppo_cfg:GO2JumpPPOWithSymmetryCfg",
     },
 )
-
-
-# ==============================================================================
-# New Skill Environments Registration
-# ==============================================================================
 
 # ---------------------- Walk ----------------------
 gym.register(
@@ -258,7 +236,10 @@ gym.register(
     },
 )
 
-# ---------------------- Virtual Skills (Instruction Hallucination) ----------------------
+# ==============================================================================
+# Virtual Skills (Instruction Hallucination)
+# ==============================================================================
+
 gym.register(
     id="go2-path-virtual-jump-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",

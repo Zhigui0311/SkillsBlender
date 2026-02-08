@@ -114,10 +114,11 @@ class Go2ParkourDistillEnvCfg(ParkourDistillEnvCfg):
             --jump_expert logs/rsl_rl/go2-path-jump/*/model_*.pt \\
             --stairs_expert logs/rsl_rl/go2-path-stairs/*/model_*.pt \\
             --climb_expert logs/rsl_rl/go2-path-climb/*/model_*.pt \\
+            --platform_expert logs/rsl_rl/go2-path-platform/*/model_*.pt \\
             --crouch_expert logs/rsl_rl/go2-path-crouch/*/model_*.pt
 
     Key Features:
-    - Uses pre-trained expert policies for each skill
+    - Uses pre-trained expert policies for each skill (6 experts required)
     - Skill phase detection selects appropriate expert
     - Distillation loss matches expert actions
     - Faster convergence than direct training
